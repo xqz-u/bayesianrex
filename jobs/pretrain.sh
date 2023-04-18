@@ -10,7 +10,7 @@
 
 code_dir=$HOME/bayesianrex
 
-source $code_dir/scripts/activate_env
+source $code_dir/scripts/activate_env.sh
 
 cd $code_dir/code
 echo "Start @ $(date)"
