@@ -1,8 +1,8 @@
 name: bayesianrex
 channels:
-  - pytorch
-  - anaconda
   - defaults
+  - nvidia
+  - pytorch
 dependencies:
   - blas=1.0=mkl
   - ca-certificates=2019.1.23=0
@@ -37,10 +37,8 @@ dependencies:
   - mkl_random=1.0.2=py36hd81dba3_0
   - ncurses=6.1=he6710b0_1
   - ninja=1.8.2=py36h6bb024c_1
-  - numpy-base=1.15.4=py36hde5b4d6_0
   - olefile=0.46=py36_0
-  - openssl=1.1.1=h7b6447c_0
-  - pandas=0.24.1=py36he6710b0_0
+  - pandas
   - pcre=8.42=h439df22_0
   - pip=19.0.1=py36_0
   - pycparser=2.19=py36_0
@@ -48,7 +46,8 @@ dependencies:
   - pyqt=5.9.2=py36h05f1152_2
   - python=3.6.8=h0371630_0
   - python-dateutil=2.8.0=py36_0
-  - pytorch=1.0.1=py3.6_cuda9.0.176_cudnn7.4.2_2
+  - pytorch
+  - pytorch-cuda=11.7
   - pytz=2018.9=py36_0
   - qt=5.9.7=h5867ecd_1
   - readline=7.0=h7b6447c_5
@@ -56,7 +55,7 @@ dependencies:
   - sip=4.19.8=py36hf484d3e_0
   - sqlite=3.26.0=h7b6447c_0
   - tk=8.6.8=hbc83047_0
-  - torchvision=0.2.1=py_2
+  - torchvision
   - tornado=5.1.1=py36h7b6447c_0
   - wheel=0.32.3=py36_0
   - xz=5.2.4=h14c3975_4
@@ -81,7 +80,6 @@ dependencies:
     - keras-preprocessing==1.0.9
     - markdown==3.0.1
     - mpi4py==3.0.1
-    - numpy==1.16.1
     - opencv-python==4.0.0.21
     - pillow==5.4.1
     - progressbar2==3.39.2
@@ -90,13 +88,12 @@ dependencies:
     - pyopengl==3.1.0
     - python-utils==2.3.0
     - requests==2.21.0
-    - scipy==1.2.1
+    - scipy
     - six==1.12.0
     - tensorboard==1.12.2
     - tensorflow-gpu==1.12.0
     - termcolor==1.1.0
-    - tqdm==4.31.1
+    - tqdm
     - urllib3==1.24.1
     - werkzeug==0.14.1
     - youtube-dl==2019.4.1
-

@@ -1,3 +1,7 @@
+# download models with the script in bayesiarex/scripts, don't push here
+models/*
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
