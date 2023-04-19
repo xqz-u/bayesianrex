@@ -13,8 +13,9 @@ seaquest_25.tar.gz
 seaquest_5.tar.gz
 spaceinvaders_25.tar.gz"
 
-mkdir models
-cd models
+models_dir=$HOME/bayesianrex/models
+mkdir $models_dir
+cd $models_dir
 
 while IFS= read -r env; do
     cmd="wget $pretrained_models_url/$env"
