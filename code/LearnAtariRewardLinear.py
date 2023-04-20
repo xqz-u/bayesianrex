@@ -23,7 +23,6 @@ from baselines.common.trex_utils import preprocess
 import os
 
 
-
 def generate_novice_demos(env, env_name, agent, model_dir):
     checkpoint_min = 50
     checkpoint_max = 600
@@ -73,7 +72,7 @@ def generate_novice_demos(env, env_name, agent, model_dir):
             #os.mkdir('images/' + str(checkpoint))
             frameno = 0
             while True:
-                action = agent.act(ob, r, done)
+                action = agent.act(ob, r, done) ## I think this is PolicyWithValue().step(ob). This function takes an r and done as well, but in their own implementation they don't use this either
                 ob, r, done, info = env.step(action)
                 ob_processed = preprocess(ob, env_name)
                 ob_processed = ob_processed[0] #get rid of first dimension ob.shape = (1,84,84,4)
@@ -528,8 +527,6 @@ if __name__=="__main__":
     np.random.seed(seed)
     tf.set_random_seed(seed)
 
-
-
     print("Training reward for", env_id)
     num_trajs =  args.num_trajs
     num_snippets = args.num_snippets
@@ -556,14 +553,19 @@ if __name__=="__main__":
                            'clip_rewards':False,
                            'episode_life':False,
                        })
+    ## I think this is just the make_vec_env function from baselines/common/cmd_util.py
 
     ACTION_DIMS = env.action_space.n
     print("Number of actions", ACTION_DIMS)
 
     env = VecFrameStack(env, 4)
     agent = PPO2Agent(env, env_type, stochastic)
+    ## I think this is the baselines/ppo2/model Model!! 
+    ## This PPO2Agent is a custom thing they define in run_test.py
+    ## The only question is: what is the 'policy' and where does it happen?
 
     demonstrations, learning_returns, learning_rewards = generate_novice_demos(env, env_name, agent, args.models_dir)
+    ## Also I haven't looked at this one yet...what happens here...
 
     #sort the demonstrations according to ground truth reward to simulate ranked demos
 

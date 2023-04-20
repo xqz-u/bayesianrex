@@ -6,6 +6,8 @@ import gym
 from gym import spaces
 import cv2
 cv2.ocl.setUseOpenCL(False)
+from .wrappers import TimeLimit
+
 
 class NoopResetEnv(gym.Wrapper):
     def __init__(self, env, noop_max=30):
@@ -56,31 +58,6 @@ class FireResetEnv(gym.Wrapper):
     def step(self, ac):
         return self.env.step(ac)
 
-class LifeLossResetFireEnv(gym.Wrapper):
-    def __init__(self, env):
-        """Take action on reset and on life loss for environments that are fixed until firing."""
-        gym.Wrapper.__init__(self, env)
-        assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
-        assert len(env.unwrapped.get_action_meanings()) >= 3
-
-    def reset(self, **kwargs):
-        self.lives = self.env.unwrapped.ale.lives()
-        self.env.reset(**kwargs)
-        obs, _, done, _ = self.env.step(1)
-        if done:
-            self.env.reset(**kwargs)
-        obs, _, done, _ = self.env.step(2)
-        if done:
-            self.env.reset(**kwargs)
-        return obs
-
-    def step(self, ac):
-        lives = self.env.unwrapped.ale.lives()
-        if lives < self.lives and lives > 0:
-            self.lives = lives
-            return self.env.step(1)
-        return self.env.step(ac)
-
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env):
         """Make end-of-life == end-of-episode, but only reset on true game over.
@@ -97,8 +74,8 @@ class EpisodicLifeEnv(gym.Wrapper):
         # then update lives to handle bonus lives
         lives = self.env.unwrapped.ale.lives()
         if lives < self.lives and lives > 0:
-            # for Qbert sometimes we stay in lives == 0 condtion for a few frames
-            # so its important to keep lives > 0, so that we only reset once
+            # for Qbert sometimes we stay in lives == 0 condition for a few frames
+            # so it's important to keep lives > 0, so that we only reset once
             # the environment advertises done.
             done = True
         self.lives = lives
@@ -153,27 +130,60 @@ class ClipRewardEnv(gym.RewardWrapper):
         """Bin reward to {+1, 0, -1} by its sign."""
         return np.sign(reward)
 
-class WarpFrame(gym.ObservationWrapper):
-    def __init__(self, env, width=84, height=84, grayscale=True):
-        """Warp frames to 84x84 as done in the Nature paper and later work."""
-        gym.ObservationWrapper.__init__(self, env)
-        self.width = width
-        self.height = height
-        self.grayscale = grayscale
-        if self.grayscale:
-            self.observation_space = spaces.Box(low=0, high=255,
-                shape=(self.height, self.width, 1), dtype=np.uint8)
-        else:
-            self.observation_space = spaces.Box(low=0, high=255,
-                shape=(self.height, self.width, 3), dtype=np.uint8)
 
-    def observation(self, frame):
-        if self.grayscale:
+class WarpFrame(gym.ObservationWrapper):
+    def __init__(self, env, width=84, height=84, grayscale=True, dict_space_key=None):
+        """
+        Warp frames to 84x84 as done in the Nature paper and later work.
+
+        If the environment uses dictionary observations, `dict_space_key` can be specified which indicates which
+        observation should be warped.
+        """
+        super().__init__(env)
+        self._width = width
+        self._height = height
+        self._grayscale = grayscale
+        self._key = dict_space_key
+        if self._grayscale:
+            num_colors = 1
+        else:
+            num_colors = 3
+
+        new_space = gym.spaces.Box(
+            low=0,
+            high=255,
+            shape=(self._height, self._width, num_colors),
+            dtype=np.uint8,
+        )
+        if self._key is None:
+            original_space = self.observation_space
+            self.observation_space = new_space
+        else:
+            original_space = self.observation_space.spaces[self._key]
+            self.observation_space.spaces[self._key] = new_space
+        assert original_space.dtype == np.uint8 and len(original_space.shape) == 3
+
+    def observation(self, obs):
+        if self._key is None:
+            frame = obs
+        else:
+            frame = obs[self._key]
+
+        if self._grayscale:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
-        if self.grayscale:
+        frame = cv2.resize(
+            frame, (self._width, self._height), interpolation=cv2.INTER_AREA
+        )
+        if self._grayscale:
             frame = np.expand_dims(frame, -1)
-        return frame
+
+        if self._key is None:
+            obs = frame
+        else:
+            obs = obs.copy()
+            obs[self._key] = frame
+        return obs
+
 
 class FrameStack(gym.Wrapper):
     def __init__(self, env, k):
@@ -246,43 +256,21 @@ class LazyFrames(object):
     def __getitem__(self, i):
         return self._force()[i]
 
-def make_atari(env_id, timelimit=True):
-    # XXX(john): remove timelimit argument after gym is upgraded to allow double wrapping
+    def count(self):
+        frames = self._force()
+        return frames.shape[frames.ndim - 1]
+
+    def frame(self, i):
+        return self._force()[..., i]
+
+def make_atari(env_id, max_episode_steps=None):
     env = gym.make(env_id)
-    if not timelimit:
-        env = env.env
     assert 'NoFrameskip' in env.spec.id
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
+    if max_episode_steps is not None:
+        env = TimeLimit(env, max_episode_steps=max_episode_steps)
     return env
-
-
-'''If repeat is true, then game repeats until timelimit is reached'''
-def make_fixed_horizon_atari(env_id, timelimit=True, repeat=True, fixed_horizon=False):
-    print("timelimit",timelimit)
-    # XXX(john): remove timelimit argument after gym is upgraded to allow double wrapping
-    env = gym.make(env_id)
-    print(dir(env))
-    print(type(env))
-    print(dir(env.unwrapped))
-    print(type(env.unwrapped))
-    print(env.unwrapped.frameskip)
-    print(env._max_episode_steps)
-    input()
-    if not timelimit:
-        env = env.env
-    else:
-        #set timelimit
-        env._max_episode_steps = 500 * 4
-        if fixed_horizon:
-            print('fixed_horizon', fixed_horizon)
-            input()
-            #make it repeat
-    assert 'NoFrameskip' in env.spec.id
-    env = NoopResetEnv(env, noop_max=30)
-    env = MaxAndSkipEnv(env, skip=4)
-    return env
-
 
 def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, scale=False):
     """Configure environment for DeepMind-style Atari.
@@ -291,7 +279,6 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, 
         env = EpisodicLifeEnv(env)
     if 'FIRE' in env.unwrapped.get_action_meanings():
         env = FireResetEnv(env)
-        #env = LifeLossResetFireEnv(env)
     env = WarpFrame(env)
     if scale:
         env = ScaledFloatFrame(env)
@@ -300,3 +287,4 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True, frame_stack=False, 
     if frame_stack:
         env = FrameStack(env, 4)
     return env
+

@@ -18,37 +18,42 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common import retro_wrappers
 
-def make_vec_env(env_id, env_type, num_env, seed, wrapper_kwargs=None, start_index=0, reward_scale=1.0, gamestate=None):
+def make_vec_env(env_id, env_type, num_env, seed,
+                 wrapper_kwargs=None,
+                 start_index=0,
+                 reward_scale=1.0,
+                 flatten_dict_observations=True,
+                 gamestate=None):
     """
     Create a wrapped, monitored SubprocVecEnv for Atari and MuJoCo.
     """
-    print("making vec env")
-    if wrapper_kwargs is None: wrapper_kwargs = {}
+    wrapper_kwargs = wrapper_kwargs or {}
     mpi_rank = MPI.COMM_WORLD.Get_rank() if MPI else 0
     seed = seed + 10000 * mpi_rank if seed is not None else None
-
+    logger_dir = logger.get_dir()
     def make_thunk(rank):
         return lambda: make_env(
             env_id=env_id,
             env_type=env_type,
-            subrank = rank,
+            mpi_rank=mpi_rank,
+            subrank=rank,
             seed=seed,
             reward_scale=reward_scale,
             gamestate=gamestate,
-            wrapper_kwargs=wrapper_kwargs
+            flatten_dict_observations=flatten_dict_observations,
+            wrapper_kwargs=wrapper_kwargs,
+            logger_dir=logger_dir
         )
 
     set_global_seeds(seed)
     if num_env > 1:
-        print("making subprocvecenv")
         return SubprocVecEnv([make_thunk(i + start_index) for i in range(num_env)])
     else:
-        print("dummy vec")
         return DummyVecEnv([make_thunk(start_index)])
 
 
-def make_env(env_id, env_type, subrank=0, seed=None, reward_scale=1.0, gamestate=None, wrapper_kwargs={}):
-    mpi_rank = MPI.COMM_WORLD.Get_rank() if MPI else 0
+def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.0, gamestate=None, flatten_dict_observations=True, wrapper_kwargs=None, logger_dir=None):
+    wrapper_kwargs = wrapper_kwargs or {}
     if env_type == 'atari':
         env = make_atari(env_id)
     elif env_type == 'retro':
@@ -56,18 +61,22 @@ def make_env(env_id, env_type, subrank=0, seed=None, reward_scale=1.0, gamestate
         gamestate = gamestate or retro.State.DEFAULT
         env = retro_wrappers.make_retro(game=env_id, max_episode_steps=10000, use_restricted_actions=retro.Actions.DISCRETE, state=gamestate)
     else:
-        print("making env")
-        print(env_id)
         env = gym.make(env_id)
-        print("made gym env")
+
+    if flatten_dict_observations and isinstance(env.observation_space, gym.spaces.Dict):
+        keys = env.observation_space.spaces.keys()
+        env = gym.wrappers.FlattenDictWrapper(env, dict_keys=list(keys))
+
     env.seed(seed + subrank if seed is not None else None)
     env = Monitor(env,
-                  logger.get_dir() and os.path.join(logger.get_dir(), str(mpi_rank) + '.' + str(subrank)),
+                  logger_dir and os.path.join(logger_dir, str(mpi_rank) + '.' + str(subrank)),
                   allow_early_resets=True)
 
     if env_type == 'atari':
         env = wrap_deepmind(env, **wrapper_kwargs)
     elif env_type == 'retro':
+        if 'frame_stack' not in wrapper_kwargs:
+            wrapper_kwargs['frame_stack'] = 1
         env = retro_wrappers.wrap_deepmind_retro(env, **wrapper_kwargs)
 
     if reward_scale != 1:
@@ -129,6 +138,7 @@ def common_arg_parser():
     """
     parser = arg_parser()
     parser.add_argument('--env', help='environment ID', type=str, default='Reacher-v2')
+    parser.add_argument('--env_type', help='type of environment, used when the environment type cannot be automatically determined', type=str)
     parser.add_argument('--seed', help='RNG seed', type=int, default=None)
     parser.add_argument('--alg', help='Algorithm', type=str, default='ppo2')
     parser.add_argument('--num_timesteps', type=float, default=1e6),
@@ -139,13 +149,8 @@ def common_arg_parser():
     parser.add_argument('--save_path', help='Path to save trained model to', default=None, type=str)
     parser.add_argument('--save_video_interval', help='Save video every x steps (0 = disabled)', default=0, type=int)
     parser.add_argument('--save_video_length', help='Length of recorded video. Default: 200', default=200, type=int)
+    parser.add_argument('--log_path', help='Directory to save learning curve data.', default=None, type=str)
     parser.add_argument('--play', default=False, action='store_true')
-    parser.add_argument('--custom_reward', default='')
-    parser.add_argument('--custom_reward_kwargs', default='{}')
-    parser.add_argument('--custom_reward_path', default='', help = "file with the pretrained weights from T-REX")
-    parser.add_argument('--mcmc_chain_path', default='', help="file with all the weights from mcmc chain")
-    parser.add_argument('--embedding_dim', default=200, type=int, help="dimension of the embedding")
-    parser.add_argument('--custom_reward_lambda', default=0.5, type=float, help='convex combo weighting given to IRL verus RL')
     return parser
 
 def robotics_arg_parser():
@@ -161,7 +166,7 @@ def robotics_arg_parser():
 
 def parse_unknown_args(args):
     """
-    Parse arguments not consumed by arg parser into a dicitonary
+    Parse arguments not consumed by arg parser into a dictionary
     """
     retval = {}
     preceded_by_key = False

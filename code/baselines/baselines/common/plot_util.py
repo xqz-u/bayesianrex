@@ -90,6 +90,8 @@ def one_sided_ema(xolds, yolds, low=None, high=None, n=512, decay_steps=1., low_
         sum_y *= interstep_decay
         count_y *= interstep_decay
         while True:
+            if luoi >= len(xolds):
+                break
             xold = xolds[luoi]
             if xold <= xnew:
                 decay = np.exp(- (xnew - xold) / decay_period)
@@ -97,8 +99,6 @@ def one_sided_ema(xolds, yolds, low=None, high=None, n=512, decay_steps=1., low_
                 count_y += decay
                 luoi += 1
             else:
-                break
-            if luoi >= len(xolds):
                 break
         sum_ys[i] = sum_y
         count_ys[i] = count_y
@@ -168,6 +168,7 @@ def load_results(root_dir_or_dirs, enable_progress=True, enable_monitor=True, ve
          - monitor - if enable_monitor is True, this field contains pandas dataframe with loaded monitor.csv file (or aggregate of all *.monitor.csv files in the directory)
          - progress - if enable_progress is True, this field contains pandas dataframe with loaded progress.csv file
     '''
+    import re
     if isinstance(root_dir_or_dirs, str):
         rootdirs = [osp.expanduser(root_dir_or_dirs)]
     else:
@@ -179,7 +180,9 @@ def load_results(root_dir_or_dirs, enable_progress=True, enable_monitor=True, ve
             if '-proc' in dirname:
                 files[:] = []
                 continue
-            if set(['metadata.json', 'monitor.json', 'monitor.csv', 'progress.json', 'progress.csv']).intersection(files):
+            monitor_re = re.compile(r'(\d+\.)?(\d+\.)?monitor\.csv')
+            if set(['metadata.json', 'monitor.json', 'progress.json', 'progress.csv']).intersection(files) or \
+               any([f for f in files if monitor_re.match(f)]):  # also match monitor files like 0.1.monitor.csv
                 # used to be uncommented, which means do not go deeper than current directory if any of the data files
                 # are found
                 # dirs[:] = []
@@ -246,6 +249,9 @@ def plot_results(
     legend_outside=False,
     resample=0,
     smooth_step=1.0,
+    tiling='vertical',
+    xlabel=None,
+    ylabel=None
 ):
     '''
     Plot multiple Results objects
@@ -297,9 +303,23 @@ def plot_results(
         sk2r[splitkey].append(result)
     assert len(sk2r) > 0
     assert isinstance(resample, int), "0: don't resample. <integer>: that many samples"
-    nrows = len(sk2r)
-    ncols = 1
-    figsize = figsize or (6, 6 * nrows)
+    if tiling == 'vertical' or tiling is None:
+        nrows = len(sk2r)
+        ncols = 1
+    elif tiling == 'horizontal':
+        ncols = len(sk2r)
+        nrows = 1
+    elif tiling == 'symmetric':
+        import math
+        N = len(sk2r)
+        largest_divisor = 1
+        for i in range(1, int(math.sqrt(N))+1):
+            if N % i == 0:
+                largest_divisor = i
+        ncols = largest_divisor
+        nrows = N // ncols
+    figsize = figsize or (6 * ncols, 6 * nrows)
+
     f, axarr = plt.subplots(nrows, ncols, sharex=False, squeeze=False, figsize=figsize)
 
     groups = list(set(group_fn(result) for result in allresults))
@@ -313,7 +333,9 @@ def plot_results(
         g2c = defaultdict(int)
         sresults = sk2r[sk]
         gresults = defaultdict(list)
-        ax = axarr[isplit][0]
+        idx_row = isplit // ncols
+        idx_col = isplit % ncols
+        ax = axarr[idx_row][idx_col]
         for result in sresults:
             group = group_fn(result)
             g2c[group] += 1
@@ -352,7 +374,7 @@ def plot_results(
                 ymean = np.mean(ys, axis=0)
                 ystd = np.std(ys, axis=0)
                 ystderr = ystd / np.sqrt(len(ys))
-                l, = axarr[isplit][0].plot(usex, ymean, color=color)
+                l, = axarr[idx_row][idx_col].plot(usex, ymean, color=color)
                 g2l[group] = l
                 if shaded_err:
                     ax.fill_between(usex, ymean - ystderr, ymean + ystderr, color=color, alpha=.4)
@@ -369,6 +391,17 @@ def plot_results(
                 loc=2 if legend_outside else None,
                 bbox_to_anchor=(1,1) if legend_outside else None)
         ax.set_title(sk)
+        # add xlabels, but only to the bottom row
+        if xlabel is not None:
+            for ax in axarr[-1]:
+                plt.sca(ax)
+                plt.xlabel(xlabel)
+        # add ylabels, but only to left column
+        if ylabel is not None:
+            for ax in axarr[:,0]:
+                plt.sca(ax)
+                plt.ylabel(ylabel)
+
     return f, axarr
 
 def regression_analysis(df):

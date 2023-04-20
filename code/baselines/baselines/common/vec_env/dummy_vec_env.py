@@ -1,6 +1,5 @@
 import numpy as np
-from gym import spaces
-from . import VecEnv
+from .vec_env import VecEnv
 from .util import copy_obs_dict, dict_to_obs, obs_space_info
 
 class DummyVecEnv(VecEnv):
@@ -27,6 +26,7 @@ class DummyVecEnv(VecEnv):
         self.buf_rews  = np.zeros((self.num_envs,), dtype=np.float32)
         self.buf_infos = [{} for _ in range(self.num_envs)]
         self.actions = None
+        self.spec = self.envs[0].spec
 
     def step_async(self, actions):
         listify = True
@@ -42,13 +42,11 @@ class DummyVecEnv(VecEnv):
             assert self.num_envs == 1, "actions {} is either not a list or has a wrong size - cannot match to {} environments".format(actions, self.num_envs)
             self.actions = [actions]
 
-        self.last_actions = actions
-
     def step_wait(self):
         for e in range(self.num_envs):
             action = self.actions[e]
-            if isinstance(self.envs[e].action_space, spaces.Discrete):
-                action = int(action)
+            # if isinstance(self.envs[e].action_space, spaces.Discrete):
+            #    action = int(action)
 
             obs, self.buf_rews[e], self.buf_dones[e], self.buf_infos[e] = self.envs[e].step(action)
             if self.buf_dones[e]:
@@ -78,15 +76,6 @@ class DummyVecEnv(VecEnv):
 
     def render(self, mode='human'):
         if self.num_envs == 1:
-            try:
-                viewer = self.envs[0].env.env._get_viewer(mode)
-            except AttributeError:
-                viewer = None
-
-            if viewer and hasattr(viewer,'_ncam') and viewer._ncam >= 1:
-                from mujoco_py.generated import const
-                viewer.cam.fixedcamid = 0
-                viewer.cam.type = const.CAMERA_FIXED
             return self.envs[0].render(mode=mode)
         else:
             return super().render(mode=mode)
