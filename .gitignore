@@ -1,6 +1,9 @@
 # download models with the script in bayesiarex/scripts, don't push here
 models/*
-
+ROMS/*
+HC ROMS/*
+code/model_checkpoints/*
+training_data/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

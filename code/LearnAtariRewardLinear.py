@@ -409,7 +409,7 @@ def learn_reward(reward_network, optimizer, training_inputs, training_outputs, t
             dt_loss_j = 4*temporal_difference_loss(est_dt_j, torch.tensor(((real_dt_j,),), dtype=torch.float32, device=device))
 
             #l1_loss = 0.5 * (torch.norm(z1, 1) + torch.norm(z2, 1))
-            trex_loss = loss_criterion(outputs, labels)
+            trex_loss = loss_criterion(outputs, labels.long())
 
             #loss = trex_loss + l1_reg * abs_rewards + reconstruction_loss_1 + reconstruction_loss_2 + dt_loss_i + dt_loss_j + inverse_dynamics_loss_1 + inverse_dynamics_loss_2
             #reconstruction_loss_1 + reconstruction_loss_2 +
@@ -588,6 +588,16 @@ if __name__=="__main__":
     print("num_labels", len(training_labels))
     print("num_times", len(training_times))
     print("num_actions", len(training_actions))
+
+    folder = '../training_data'
+    np.save(open(f'{folder}/training_obs.npy', 'wb'), np.array(training_obs, dtype=object))
+    np.save(open(f'{folder}/training_labels.npy', 'wb'), np.array(training_labels, dtype=object))
+    np.save(open(f'{folder}/training_actions.npy', 'wb'), np.array(training_actions, dtype=object))
+    np.save(open(f'{folder}/training_times.npy', 'wb'), np.array(training_times, dtype=object))
+    np.save(open(f'{folder}/demonstrations.npy', 'wb'), np.array(demonstrations, dtype=object))
+    np.save(open(f'{folder}/sorted_returns.npy', 'wb'), np.array(sorted_returns, dtype=object))
+    print('Saved all files successfully')
+    quit(1)
 
     # Now we create a reward network and optimize it using the training data.
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
