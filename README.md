@@ -1,13 +1,14 @@
 # NOTE Environment installation (Marco)
 
-First install micromamba as a package manager: (conda but C++ fast)
-```bash $HOME/bayesianrex/scripts/install_env.sh```
+First install micromamba as a package manager (same interface as conda, but C++ fast):
+```
+bash $HOME/bayesianrex/scripts/install_env.sh
+```
 
-Any time you want to activate the environment:
-```source $HOME/bayesianrex/scripts/activate_env.sh```
-
-To run pretraining:
-```sbatch $HOME/bayesianrex/jobs/pretrain.sh```
+Any time you want to activate the environment (inside job files too):
+```
+source $HOME/bayesianrex/scripts/activate_env.sh
+```
 
 # Safe Imitation Learning via Fast Bayesian Reward Inference from Preferences
 

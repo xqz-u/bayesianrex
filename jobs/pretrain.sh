@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:2
 #SBATCH --job-name=pretrain_bayesianrex
 #SBATCH --cpus-per-task=3
-#SBATCH --time=02:00:00
+#SBATCH --time=03:00:00
 #SBATCH --mem=12G
 #SBATCH --output=/home/%u/job_logs/%x_%A_%u.out
 

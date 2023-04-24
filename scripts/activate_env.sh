@@ -1,8 +1,12 @@
 #!/bin/bash
 
-# NOTE unnecessary if micromamba is already in $PATH
-micromamba_bin=$HOME/.local/bin/micromamba
+# we use Conda to source the environment since it's not as straightforward
+# with MicroMamba, but use the latter for environment management (it's faster,
+# same interface as Conda and allows easy environment modification)
 
-$micromamba_bin activate bayesianrex-dl2
+module load 2022
+module load Anaconda3/2022.05
 
-cd $HOME/bayesianrex
+# with Conda the full prefix is needed sintce the env lives outside of
+# default $HOME/.conda
+source activate $HOME/micromamba/envs/bayesianrex-dl2

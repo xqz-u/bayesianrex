@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # TODO download to correct data partition, not user directory
+
+# these are the PPO2 pretrained models used to generate the
+# demonstrations for imitation learning
 pretrained_models_url="https://github.com/dsbrown1331/learning-rewards-of-learners/releases/download/atari25"
 
 tags="beamrider_25.tar.gz
