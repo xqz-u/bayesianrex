@@ -1,11 +1,8 @@
 #!/bin/bash
 
-module purge
-module load 2022
-module load Mamba/4.14.0-0
-# needed or openAI baselines stuff does not work on compute nodes
-module load OpenMPI/4.1.4-GCC-11.3.0
+# NOTE unnecessary if micromamba is already in $PATH
+micromamba_bin=$HOME/.local/bin/micromamba
 
-source activate bayesianrex
+$micromamba_bin activate bayesianrex-dl2
 
 cd $HOME/bayesianrex

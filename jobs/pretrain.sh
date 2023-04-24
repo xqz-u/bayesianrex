@@ -14,5 +14,5 @@ source $code_dir/scripts/activate_env.sh
 
 cd $code_dir/code
 echo "Start @ $(date)"
-srun python LearnAtariRewardLinear.py --env_name breakout --reward_model_path ../pretrained_networks/breakout_pretrained.params --models_dir ..
+srun python train_net.py
 echo "End @ $(date)"

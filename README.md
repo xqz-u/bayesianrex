@@ -1,3 +1,14 @@
+# NOTE Environment installation (Marco)
+
+First install micromamba as a package manager: (conda but C++ fast)
+```bash $HOME/bayesianrex/scripts/install_env.sh```
+
+Any time you want to activate the environment:
+```source $HOME/bayesianrex/scripts/activate_env.sh```
+
+To run pretraining:
+```sbatch $HOME/bayesianrex/jobs/pretrain.sh```
+
 # Safe Imitation Learning via Fast Bayesian Reward Inference from Preferences
 
 Daniel S. Brown, Russell Coleman, Ravi Srinivasan, Scott Niekum
@@ -15,7 +26,7 @@ Bayesian REX pipeline:
 
 
 
-This repository contains code used to conduct the Atari experiments reported in the paper "Safe Imitation Learning via Fast Bayesian Reward Inference from Preferences" published at ICML 2020. 
+This repository contains code used to conduct the Atari experiments reported in the paper "Safe Imitation Learning via Fast Bayesian Reward Inference from Preferences" published at ICML 2020.
 
 If you are interested in the gridworld experiments reported in the Appendix, please see this repo [brex_gridworld_cpp](https://github.com/dsbrown1331/brex_gridworld_cpp).
 

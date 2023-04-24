@@ -3,6 +3,7 @@ models/*
 ROMS/*
 HC ROMS/*
 code/model_checkpoints/*
+training_data.zip
 training_data/*
 
 # Byte-compiled / optimized / DLL files
