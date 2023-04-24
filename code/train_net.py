@@ -404,7 +404,7 @@ if __name__ == "__main__":
     weight_decay = 0.001
     encoding_dims = 64
     ACTION_DIMS = 4
-    reward_model_path = ""
+    reward_model_path = "../reward_model"
     l1_reg = 0.0
     num_iter = 2 if env_name == "enduro" and loss_fn == "trex+ss" else 1
 

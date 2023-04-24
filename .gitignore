@@ -3,7 +3,7 @@ models/*
 ROMS/*
 HC ROMS/*
 code/model_checkpoints/*
-model_checkpoints
+# model_checkpoints
 training_data.zip
 training_data/*
 
