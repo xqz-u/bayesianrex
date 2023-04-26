@@ -52,7 +52,7 @@ class EmbeddingNet(nn.Module):
         x = F.leaky_relu(self.conv2(x))
         x = F.leaky_relu(self.conv3(x))
         x = F.leaky_relu(self.conv4(x))
-        x = x.view(-1, 784)
+        x = x.reshape(x.shape[0], 784)
         x = F.leaky_relu(self.fc1(x))
         mu = self.fc_mu(x)
 
@@ -79,7 +79,7 @@ class EmbeddingNet(nn.Module):
                 x = F.leaky_relu(self.conv2(x))
                 x = F.leaky_relu(self.conv3(x))
                 x = F.leaky_relu(self.conv4(x))
-                x = x.view(-1, 784)
+                x = x.reshape(x.shape[0], 784)
                 x = F.leaky_relu(self.fc1(x))
                 mu = self.fc_mu(x)
                 accum.add_(mu)
@@ -94,7 +94,7 @@ class EmbeddingNet(nn.Module):
             x = F.leaky_relu(self.conv2(x))
             x = F.leaky_relu(self.conv3(x))
             x = F.leaky_relu(self.conv4(x))
-            x = x.view(-1, 784)
+            x = x.reshape(x.shape[0], 784)
             x = F.leaky_relu(self.fc1(x))
             mu = self.fc_mu(x)
 

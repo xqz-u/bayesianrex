@@ -1,209 +1,24 @@
-#make sure it uses the custom baselines package
-import sys
-sys.path.insert(0,'./baselines/')
-
-import argparse
-# coding: utf-8
-
-# Take as input a compressed pretrained network or run T_REX before hand
-# Then run MCMC and save posterior chain
-
-
-import pickle
-import copy
-import gym
-import time
-import numpy as np
-import random
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from run_test import *
 from StrippedNet import EmbeddingNet
-from baselines.common.trex_utils import preprocess
+import argparse
+import numpy as np
+import sys
+import copy
+from tqdm import tqdm
 
+def write_weights_likelihood(last_layer, loglik, file_writer):
+    if args.debug:
+        print("writing weights")
+    #convert last layer to numpy array
+    np_weights = get_weight_vector(last_layer)
+    for w in np_weights:
+        file_writer.write(str(w)+",")
+    file_writer.write(str(loglik.item()) + "\n")
 
-
-def generate_debug_demos(env, env_name, agent, model_dir):
-    checkpoint_min = 50
-    checkpoint_max = 100
-    checkpoint_step = 50
-    checkpoints = []
-    if env_name == "enduro":
-        checkpoint_min = 3100
-        checkpoint_max = 3650
-    elif env_name == "seaquest":
-        checkpoint_min = 10
-        checkpoint_max = 65
-        checkpoint_step = 5
-    for i in range(checkpoint_min, checkpoint_max + checkpoint_step, checkpoint_step):
-        if i < 10:
-            checkpoints.append('0000' + str(i))
-        elif i < 100:
-            checkpoints.append('000' + str(i))
-        elif i < 1000:
-            checkpoints.append('00' + str(i))
-        elif i < 10000:
-            checkpoints.append('0' + str(i))
-    print(checkpoints)
-
-
-
-    demonstrations = []
-    learning_returns = []
-    learning_rewards = []
-    for checkpoint in checkpoints:
-
-        model_path = model_dir + env_name + "_25/" + checkpoint
-        if env_name == "seaquest":
-            model_path = model_dir + env_name + "_5/" + checkpoint
-
-        agent.load(model_path)
-        episode_count = 1
-        for i in range(episode_count):
-            done = False
-            traj = []
-            gt_rewards = []
-            r = 0
-
-            ob = env.reset()
-            steps = 0
-            acc_reward = 0
-            while True:
-                action = agent.act(ob, r, done)
-                ob, r, done, _ = env.step(action)
-                ob_processed = preprocess(ob, env_name)
-                #ob_processed = ob_processed[0] #get rid of first dimension ob.shape = (1,84,84,4)
-                traj.append(ob_processed)
-
-                gt_rewards.append(r[0])
-                steps += 1
-                acc_reward += r[0]
-                if done:
-                    print("checkpoint: {}, steps: {}, return: {}".format(checkpoint, steps,acc_reward))
-                    break
-            print("traj length", len(traj))
-            print("demo length", len(demonstrations))
-            demonstrations.append(traj)
-            learning_returns.append(acc_reward)
-            learning_rewards.append(gt_rewards)
-
-    return demonstrations, learning_returns, learning_rewards
-
-
-def generate_novice_demos(env, env_name, agent, model_dir):
-    checkpoint_min = 50
-    checkpoint_max = 600
-    checkpoint_step = 50
-    checkpoints = []
-    if env_name == "enduro":
-        checkpoint_min = 3100
-        checkpoint_max = 3650
-    elif env_name == "seaquest":
-        checkpoint_min = 10
-        checkpoint_max = 65
-        checkpoint_step = 5
-    for i in range(checkpoint_min, checkpoint_max + checkpoint_step, checkpoint_step):
-        if i < 10:
-            checkpoints.append('0000' + str(i))
-        elif i < 100:
-            checkpoints.append('000' + str(i))
-        elif i < 1000:
-            checkpoints.append('00' + str(i))
-        elif i < 10000:
-            checkpoints.append('0' + str(i))
-    print(checkpoints)
-
-
-
-    demonstrations = []
-    learning_returns = []
-    learning_rewards = []
-    for checkpoint in checkpoints:
-
-        model_path = model_dir + env_name + "_25/" + checkpoint
-        if env_name == "seaquest":
-            model_path = model_dir + env_name + "_5/" + checkpoint
-
-        agent.load(model_path)
-        episode_count = 1
-        for i in range(episode_count):
-            done = False
-            traj = []
-            gt_rewards = []
-            r = 0
-
-            ob = env.reset()
-            steps = 0
-            acc_reward = 0
-            while True:
-                action = agent.act(ob, r, done)
-                ob, r, done, _ = env.step(action)
-                ob_processed = preprocess(ob, env_name)
-                #ob_processed = ob_processed[0] #get rid of first dimension ob.shape = (1,84,84,4)
-                traj.append(ob_processed)
-
-                gt_rewards.append(r[0])
-                steps += 1
-                acc_reward += r[0]
-                if done:
-                    print("checkpoint: {}, steps: {}, return: {}".format(checkpoint, steps,acc_reward))
-                    break
-            print("traj length", len(traj))
-            print("demo length", len(demonstrations))
-            demonstrations.append(traj)
-            learning_returns.append(acc_reward)
-            learning_rewards.append(gt_rewards)
-
-    return demonstrations, learning_returns, learning_rewards
-
-
-
-def create_mcmc_likelihood_data(demonstrations):
-    '''create all pairwise rankings given list of sorted demonstrations'''
-    training_obs = []
-    training_labels = []
-    num_demos = len(demonstrations)
-    for i in range(num_demos):
-        for j in range(i+1,num_demos):
-            #print(i,j)
-            traj_i = demonstrations[i]
-            traj_j = demonstrations[j]
-            label = 1
-            training_obs.append((traj_i, traj_j))
-            training_labels.append(label)
-
-    return training_obs, training_labels
-
-
-
-
-
-
-
-
-
-def predict_reward_sequence(net, traj):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    rewards_from_obs = []
-    with torch.no_grad():
-        for s in traj:
-            r = net.cum_return(torch.from_numpy(np.array(s)).float().to(device)).item()
-            rewards_from_obs.append(r)
-    return rewards_from_obs
-
-def predict_traj_return(net, traj):
-    return sum(predict_reward_sequence(net, traj))
-
-def print_traj_returns(reward_net, demonstrations):
-    #print out predicted cumulative returns and actual returns
-    with torch.no_grad():
-        pred_returns = [predict_traj_return(reward_net, traj) for traj in demonstrations]
-    for i, p in enumerate(pred_returns):
-        print(i,p,sorted_returns[i])
 
 def calc_linearized_pairwise_ranking_loss(last_layer, pairwise_prefs, demo_cnts, confidence=1):
-    '''use (i,j) indices and precomputed feature counts to do faster pairwise ranking loss'''
+    '''use (i,j) indices and precomputed feature counts to do p pairwise ranking loss'''
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Assume that we are on a CUDA machine, then this should print a CUDA device:
     #print(device)
@@ -245,36 +60,6 @@ def calc_linearized_pairwise_ranking_loss(last_layer, pairwise_prefs, demo_cnts,
             #cum_log_likelihood += log_likelihood
     return cum_log_likelihood
 
-
-
-
-def random_search(reward_net, demonstrations, num_trials, stdev = 0.1):
-    '''hill climbing random search'''
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    best_likelihood = -np.inf
-    best_reward = copy.deepcopy(reward_net)
-    #create the pairwise rankings for loss calculations
-    demo_pairs, preference_labels = create_mcmc_likelihood_data(demonstrations)
-    for i in range(num_trials):
-        print()
-        print("trial", i)
-        reward_net_proposal = copy.deepcopy(best_reward)
-        #add random noise to weights
-        with torch.no_grad():
-            for param in reward_net_proposal.parameters():
-                param.add_(torch.randn(param.size()).to(device) * stdev)
-        #print_traj_returns(reward_net_proposal, demonstrations)
-        cum_loglik = calc_pairwise_ranking_loss(reward_net_proposal, demo_pairs, preference_labels)
-        print("pair-wise ranking loglik", cum_loglik)
-        if cum_loglik > best_likelihood:
-            best_likelihood = cum_loglik
-            best_reward = copy.deepcopy(reward_net_proposal)
-            print("updating best to ", best_likelihood)
-        else:
-            print("rejecting")
-    return best_reward
-
 def generate_feature_counts(demos, reward_net):
     feature_cnts = torch.zeros(len(demos), reward_net.fc2.in_features) #no bias
     for i in range(len(demos)):
@@ -293,24 +78,6 @@ def get_weight_vector(last_layer):
         weights = linear.squeeze().cpu().numpy()
     return weights
 
-def write_weights_likelihood(last_layer, loglik, file_writer):
-    if args.debug:
-        print("writing weights")
-    #convert last layer to numpy array
-    np_weights = get_weight_vector(last_layer)
-    for w in np_weights:
-        file_writer.write(str(w)+",")
-    file_writer.write(str(loglik.item()) + "\n")
-
-def compute_l1(last_layer):
-    linear = last_layer.weight.data
-    #print(linear)
-    #print(bias)
-    with torch.no_grad():
-        weights = linear.squeeze().cpu().numpy()
-    #print("output", np.sum(np.abs(weights)))
-    return np.sum(np.abs(weights))
-
 def compute_l2(last_layer):
     linear = last_layer.weight.data
     #print(linear)
@@ -320,6 +87,41 @@ def compute_l2(last_layer):
     #print("output", np.sum(np.abs(weights)))
     return np.linalg.norm(weights)
 
+def create_mcmc_likelihood_data(demonstrations):
+    '''create all pairwise rankings given list of sorted demonstrations'''
+    training_obs = []
+    training_labels = []
+    num_demos = len(demonstrations)
+    for i in range(num_demos):
+        for j in range(i+1,num_demos):
+            #print(i,j)
+            traj_i = demonstrations[i]
+            traj_j = demonstrations[j]
+            label = 1
+            training_obs.append((traj_i, traj_j))
+            training_labels.append(label)
+
+    return training_obs, training_labels
+
+def predict_reward_sequence(net, traj):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    rewards_from_obs = []
+    with torch.no_grad():
+        for s in traj:
+            r = net.cum_return(torch.from_numpy(np.array(s)).float().to(device)).item()
+            rewards_from_obs.append(r)
+    return rewards_from_obs
+
+def predict_traj_return(net, traj):
+    return sum(predict_reward_sequence(net, traj))
+
+
+def print_traj_returns(reward_net, demonstrations):
+    #print out predicted cumulative returns and actual returns
+    with torch.no_grad():
+        pred_returns = [predict_traj_return(reward_net, traj) for traj in demonstrations]
+    for i, p in enumerate(pred_returns):
+        print(i,p,sorted_returns[i])
 
 def mcmc_map_search(reward_net, demonstrations, pairwise_prefs, demo_cnts, num_steps, step_stdev, weight_output_filename, weight_init):
     '''run metropolis hastings MCMC and record weights in chain'''
@@ -402,7 +204,7 @@ def mcmc_map_search(reward_net, demonstrations, pairwise_prefs, demo_cnts, num_s
     reject_cnt = 0
     accept_cnt = 0
 
-    for i in range(num_steps):
+    for i in tqdm(range(num_steps)):
         if args.debug:
             print("step", i)
         #take a proposal step
@@ -468,9 +270,7 @@ def mcmc_map_search(reward_net, demonstrations, pairwise_prefs, demo_cnts, num_s
     writer.close()
     return map_reward
 
-
-
-if __name__=="__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument('--env_name', default='', help='Select the environment name to run, i.e. pong')
     parser.add_argument('--map_reward_model_path', default='', help="name and location for learned model params, e.g. ../mcmc_data/breakout_map.params")
@@ -487,64 +287,6 @@ if __name__=="__main__":
 
     args = parser.parse_args()
 
-
-    env_name = args.env_name
-    if env_name == "spaceinvaders":
-        env_id = "SpaceInvadersNoFrameskip-v4"
-    elif env_name == "mspacman":
-        env_id = "MsPacmanNoFrameskip-v4"
-    elif env_name == "videopinball":
-        env_id = "VideoPinballNoFrameskip-v4"
-    elif env_name == "beamrider":
-        env_id = "BeamRiderNoFrameskip-v4"
-    else:
-        env_id = env_name[0].upper() + env_name[1:] + "NoFrameskip-v4"
-
-    env_type = "atari"
-    print(env_type)
-    #set seeds
-    seed = int(args.seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    tf.set_random_seed(seed)
-
-    stochastic = True
-
-
-    env = make_vec_env(env_id, 'atari', 1, seed,
-                       wrapper_kwargs={
-                           'clip_rewards':False,
-                           'episode_life':False,
-                       })
-
-
-    env = VecFrameStack(env, 4)
-    agent = PPO2Agent(env, env_type, stochastic)
-
-    if args.debug:
-        print("*"*30)
-        print("*"*30)
-        print("\tDEBUG MODE")
-        print("*"*30)
-        print("*"*30)
-        demonstrations, learning_returns, learning_rewards = generate_debug_demos(env, env_name, agent, args.models_dir)
-    else:
-        demonstrations, learning_returns, learning_rewards = generate_novice_demos(env, env_name, agent, args.models_dir)
-
-    #sort the demonstrations according to ground truth reward to simulate ranked demos
-
-    print([a[0] for a in zip(learning_returns, demonstrations)])
-    demonstrations = [x for _, x in sorted(zip(learning_returns,demonstrations), key=lambda pair: pair[0])]
-
-    sorted_returns = sorted(learning_returns)
-    print(sorted_returns)
-
-    folder = '../retraining_data'
-    np.save(f'{folder}/demonstrations.npy', np.array(demonstrations, dtype=object))
-    np.save(f'{folder}/sorted_returns.npy', np.array(sorted_returns, dtype=object))
-
-    print('Succesfully saved data')
-    quit(1)
     # Now we download a pretrained network to form \phi(s) the state features where the reward is now w^T \phi(s)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -559,6 +301,10 @@ if __name__=="__main__":
     #freeze all weights so there are no gradients (we'll manually update the last layer via proposals so no grads required)
     for param in reward_net.parameters():
         param.requires_grad = False
+
+    folder = '../retraining_data'
+    demonstrations = np.load(f'{folder}/demonstrations.npy', allow_pickle=True)
+    sorted_returns = np.load(f'{folder}/sorted_returns.npy', allow_pickle=True)
 
     #get num_demos by num_features + 1 (bias) numpy array with (un-discounted) feature counts from pretrained network
     demo_cnts = generate_feature_counts(demonstrations, reward_net)
@@ -610,7 +356,7 @@ if __name__=="__main__":
     best_reward.to(device)
     #print(best_reward.state_dict())
     #save best reward network
-    torch.save(best_reward.state_dict(), args.map_reward_model_path)
+    torch.save(best_reward.state_dict(), args.map_reward_model_path, _use_new_zipfile_serialization=False)
     demo_pairs, preference_labels = create_mcmc_likelihood_data(demonstrations)
     print_traj_returns(best_reward, demonstrations)
 

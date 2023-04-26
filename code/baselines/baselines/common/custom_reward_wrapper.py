@@ -44,7 +44,7 @@ class VecPyTorchMujocoReward(VecEnvWrapper):
     def __init__(self, venv, reward_net_path, env_name):
         VecEnvWrapper.__init__(self, venv)
         self.reward_net = ReacherNet(11)
-        self.reward_net.load_state_dict(torch.load(reward_net_path))
+        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location='cpu'))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.reward_net.to(self.device)
 
@@ -184,7 +184,7 @@ class VecRLplusIRLAtariReward(VecEnvWrapper):
     def __init__(self, venv, reward_net_path, combo_param):
         VecEnvWrapper.__init__(self, venv)
         self.reward_net = AtariNet()
-        self.reward_net.load_state_dict(torch.load(reward_net_path))
+        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location='cpu'))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.reward_net.to(self.device)
 
@@ -240,7 +240,7 @@ class VecPyTorchAtariReward(VecEnvWrapper):
     def __init__(self, venv, reward_net_path, env_name):
         VecEnvWrapper.__init__(self, venv)
         self.reward_net = AtariNet()
-        self.reward_net.load_state_dict(torch.load(reward_net_path))
+        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location='cpu'))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.reward_net.to(self.device)
 
@@ -286,7 +286,7 @@ class VecMCMCMAPAtariReward(VecEnvWrapper):
     def __init__(self, venv, reward_net_path, embedding_dim, env_name):
         VecEnvWrapper.__init__(self, venv)
         self.reward_net = EmbeddingNet(embedding_dim)
-        self.reward_net.load_state_dict(torch.load(reward_net_path))
+        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location='cpu'))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.reward_net.to(self.device)
 
@@ -335,7 +335,7 @@ class VecMCMCMeanAtariReward(VecEnvWrapper):
         VecEnvWrapper.__init__(self, venv)
         self.reward_net = EmbeddingNet(embedding_dim)
         #load the pretrained weights
-        self.reward_net.load_state_dict(torch.load(pretrained_reward_net_path))
+        self.reward_net.load_state_dict(torch.load(pretrained_reward_net_path, map_location=torch.device('cpu')))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         #load the mean of the MCMC chain
