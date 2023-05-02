@@ -1,5 +1,4 @@
 import os
-import sys
 
 import numpy as np
 import torch
@@ -8,41 +7,42 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
+import argparse
 
 class Net(nn.Module):
     def __init__(self, ENCODING_DIMS, ACTION_DIMS):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(4, 16, 7, stride=3)
-        self.conv2 = nn.Conv2d(16, 32, 5, stride=2)
-        self.conv3 = nn.Conv2d(32, 32, 3, stride=1)
-        self.conv4 = nn.Conv2d(32, 16, 3, stride=1)
         intermediate_dimension = min(784, max(64, ENCODING_DIMS * 2))
-        self.fc1 = nn.Linear(784, intermediate_dimension)
+        act_fn = nn.LeakyReLU()
+        self.pre_reshape = nn.Sequential(
+            nn.Conv2d(4, 16, 7, stride=3), act_fn,
+            nn.Conv2d(16, 32, 5, stride=2), act_fn,
+            nn.Conv2d(32, 32, 3, stride=1), act_fn,
+            nn.Conv2d(32, 16, 3, stride=1), act_fn
+        )
+        self.post_reshape = nn.Sequential(
+            nn.Linear(784, intermediate_dimension), act_fn
+        )
+        self.decoder_pre_reshape = nn.Sequential(
+            nn.Linear(ENCODING_DIMS, intermediate_dimension), act_fn,
+            nn.Linear(intermediate_dimension, 1568), act_fn
+        )
+        self.decoder_post_reshape = nn.Sequential(
+            nn.ConvTranspose2d(2, 4, 3, stride=1), act_fn,
+            nn.ConvTranspose2d(4, 16, 6, stride=1), act_fn,
+            nn.ConvTranspose2d(16, 16, 7, stride=2), act_fn,
+            nn.ConvTranspose2d(16, 4, 10, stride=1), nn.Sigmoid()
+        )
         self.fc_mu = nn.Linear(intermediate_dimension, ENCODING_DIMS)
         self.fc_var = nn.Linear(intermediate_dimension, ENCODING_DIMS)
-        self.fc2 = nn.Linear(ENCODING_DIMS, 1)
-        self.reconstruct1 = nn.Linear(ENCODING_DIMS, intermediate_dimension)
-        self.reconstruct2 = nn.Linear(intermediate_dimension, 1568)
-        self.reconstruct_conv1 = nn.ConvTranspose2d(2, 4, 3, stride=1)
-        self.reconstruct_conv2 = nn.ConvTranspose2d(4, 16, 6, stride=1)
-        self.reconstruct_conv3 = nn.ConvTranspose2d(16, 16, 7, stride=2)
-        self.reconstruct_conv4 = nn.ConvTranspose2d(16, 4, 10, stride=1)
-        self.temporal_difference1 = nn.Linear(
-            ENCODING_DIMS * 2, 1, bias=False
-        )  # ENCODING_DIMS)
-        # self.temporal_difference2 = nn.Linear(ENCODING_DIMS, 1)
-        self.inverse_dynamics1 = nn.Linear(
-            ENCODING_DIMS * 2, ACTION_DIMS, bias=False
-        )  # ENCODING_DIMS)
-        # self.inverse_dynamics2 = nn.Linear(ENCODING_DIMS, ACTION_SPACE_SIZE)
-        self.forward_dynamics1 = nn.Linear(
-            ENCODING_DIMS + ACTION_DIMS, ENCODING_DIMS, bias=False
-        )  # (ENCODING_DIMS + ACTION_SPACE_SIZE) * 2)
-        # self.forward_dynamics2 = nn.Linear((ENCODING_DIMS + ACTION_SPACE_SIZE) * 2, (ENCODING_DIMS + ACTION_SPACE_SIZE) * 2)
-        # self.forward_dynamics3 = nn.Linear((ENCODING_DIMS + ACTION_SPACE_SIZE) * 2, ENCODING_DIMS)
+        self.fc1 = nn.Linear(ENCODING_DIMS, 1)
+
+        self.temporal_difference1 = nn.Linear(ENCODING_DIMS * 2, 1, bias=False)
+        self.inverse_dynamics1 = nn.Linear(ENCODING_DIMS * 2, ACTION_DIMS, bias=False)  
+        self.forward_dynamics1 = nn.Linear(ENCODING_DIMS + ACTION_DIMS, ENCODING_DIMS, bias=False)
+
         self.normal = tdist.Normal(0, 1)
-        self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
         self.ACTION_DIMS = ACTION_DIMS
         print("Intermediate dimension calculated to be: " + str(intermediate_dimension))
@@ -60,60 +60,40 @@ class Net(nn.Module):
         # print("input shape of trajectory:")
         # print(traj.shape)
         """calculate cumulative return of trajectory"""
-        sum_rewards = 0
+        sum_rewards, sum_abs_rewards = 0, 0
         sum_abs_rewards = 0
         x = traj.permute(0, 3, 1, 2)  # get into NCHW format
+
         # compute forward pass of reward network (we parallelize across frames so batch size is length of partial trajectory)
-        x = F.leaky_relu(self.conv1(x))
-        x = F.leaky_relu(self.conv2(x))
-        x = F.leaky_relu(self.conv3(x))
-        x = F.leaky_relu(self.conv4(x))
-        x = x.reshape((x.shape[0], 784))
-        x = F.leaky_relu(self.fc1(x))
-        mu = self.fc_mu(x)
-        var = self.fc_var(x)
+        x = self.pre_reshape(x).reshape((x.shape[0], 784))
+        x = self.post_reshape(x)
+
+        mu, var = self.fc_mu(x), self.fc_var(x)
         z = self.reparameterize(mu, var)
 
-        r = self.fc2(z)
+        r = self.fc1(z)
         sum_rewards += torch.sum(r)
         sum_abs_rewards += torch.sum(torch.abs(r))
         return sum_rewards, sum_abs_rewards, mu, var, z
 
     def estimate_temporal_difference(self, z1, z2):
         x = self.temporal_difference1(torch.cat((z1, z2), 1))
-        # x = self.temporal_difference2(x)
         return x
 
     def forward_dynamics(self, z1, actions):
         x = torch.cat((z1, actions), dim=1)
         x = self.forward_dynamics1(x)
-        # x = F.leaky_relu(self.forward_dynamics2(x))
-        # x = self.forward_dynamics3(x)
         return x
 
     def estimate_inverse_dynamics(self, z1, z2):
         concatenation = torch.cat((z1, z2), 1)
         x = self.inverse_dynamics1(concatenation)
-        # x = F.leaky_relu(self.inverse_dynamics2(x))
         return x
 
     def decode(self, encoding):
-        x = F.leaky_relu(self.reconstruct1(encoding))
-        x = F.leaky_relu(self.reconstruct2(x))
+        x = self.decoder_pre_reshape(encoding)
         x = x.view(-1, 2, 28, 28)
-        # print("------decoding--------")
-        # print(x.shape)
-        x = F.leaky_relu(self.reconstruct_conv1(x))
-        # print(x.shape)
-        x = F.leaky_relu(self.reconstruct_conv2(x))
-        # print(x.shape)
-        # print(x.shape)
-        x = F.leaky_relu(self.reconstruct_conv3(x))
-        # print(x.shape)
-        # print(x.shape)
-        x = self.sigmoid(self.reconstruct_conv4(x))
-        # print(x.shape)
-        # print("------end decoding--------")
+        x = self.decoder_post_reshape(x)
         return x.permute(0, 2, 3, 1)
 
     def forward(self, traj_i, traj_j):
@@ -123,41 +103,74 @@ class Net(nn.Module):
         return (
             torch.cat((cum_r_i.unsqueeze(0), cum_r_j.unsqueeze(0)), 0),
             abs_r_i + abs_r_j,
-            z1,
-            z2,
-            mu1,
-            mu2,
-            var1,
-            var2,
+            z1, z2,
+            mu1, mu2,
+            var1, var2,
         )
 
 
 def reconstruction_loss(decoded, target, mu, logvar):
     num_elements = decoded.numel()
-    target_num_elements = decoded.numel()
-    if num_elements != target_num_elements:
-        print("ELEMENT SIZE MISMATCH IN RECONSTRUCTION")
-        sys.exit()
+    target_num_elements = target.numel()
+    assert num_elements == target_num_elements
+
     bce = F.binary_cross_entropy(decoded, target)
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     kld /= num_elements
     # print("bce: " + str(bce) + " kld: " + str(kld))
     return bce + kld
 
+def compute_losses(reward_network, z, mu, logvar, traj, times, num_frames, actions_):
+    inverse_dynamics_loss_fn = nn.CrossEntropyLoss()
+    forward_dynamics_loss_fn = nn.MSELoss()
+    temporal_difference_loss = nn.MSELoss()
+    decoded = reward_network.decode(z)
+    recon_loss = 10 * reconstruction_loss(decoded, traj, mu, logvar)
+    t1, t2 = tuple(np.random.randint(low=0, high=len(times), size=2))
+    est_dt = reward_network.estimate_temporal_difference(mu[t1].unsqueeze(0), mu[t2].unsqueeze(0))
+    real_dt = (times[t2] - times[t1]) / 100.0
+
+    actions = reward_network.estimate_inverse_dynamics(mu[0:-1], mu[1:])
+    target_actions = torch.LongTensor(actions_[1:]).to(device)
+
+    inverse_dynamics_loss = (inverse_dynamics_loss_fn(actions, target_actions) / 1.9)
+    forward_dynamics_distance = 5
+    forward_dynamics_onehot_actions_1 = torch.zeros((num_frames - 1, reward_network.ACTION_DIMS), dtype=torch.float32, device=device)
+    forward_dynamics_onehot_actions_1.scatter_(1, target_actions.unsqueeze(1), 1.0)
+
+    forward_dynamics = reward_network.forward_dynamics(
+        mu[:-forward_dynamics_distance],
+        forward_dynamics_onehot_actions_1[
+        : (num_frames - forward_dynamics_distance)
+        ],
+    )
+
+    for fd_i in range(forward_dynamics_distance - 1):
+        forward_dynamics = reward_network.forward_dynamics(
+            forward_dynamics,
+            forward_dynamics_onehot_actions_1[
+                fd_i + 1 : (num_frames - forward_dynamics_distance + fd_i + 1)
+            ],
+        )
+
+    forward_dynamics_loss = 100 * forward_dynamics_loss_fn(forward_dynamics, mu[forward_dynamics_distance:])
+    dt_loss_i = 4 * temporal_difference_loss(est_dt, torch.tensor(((real_dt,),), dtype=torch.float32, device=device))
+
+    return sum([dt_loss_i, forward_dynamics_loss, recon_loss, inverse_dynamics_loss])
 
 # Train the network
 def learn_reward(
-    reward_network,
-    optimizer,
-    training_inputs,
-    training_outputs,
-    training_times,
-    training_actions,
-    num_iter,
-    l1_reg,
-    loss_fn,
-    checkpoint_dir="../model_checkpoints",
-):
+        reward_network,
+        optimizer,
+        inputs,
+        outputs,
+        actions,
+        times,
+        num_iter,
+        l1_reg,
+        loss_fn,
+        checkpoint_dir="../model_checkpoints"
+    ):
     os.makedirs(checkpoint_dir, exist_ok=True)
     print(f"Saving outputs to {os.path.abspath(checkpoint_dir)}")
     # check if gpu available
@@ -165,15 +178,10 @@ def learn_reward(
     # Assume that we are on a CUDA machine, then this should print a CUDA device:
     print(device)
     loss_criterion = nn.CrossEntropyLoss()
-    temporal_difference_loss = nn.MSELoss()
-    inverse_dynamics_loss = nn.CrossEntropyLoss()
-    forward_dynamics_loss = nn.MSELoss()
 
     cum_loss = 0.0
-    training_data = list(
-        zip(training_inputs, training_outputs, training_times, training_actions)
-    )
-    for epoch in range(num_iter):
+    training_data = list(zip(inputs, outputs, times, actions))
+    for _ in range(num_iter):
         np.random.shuffle(training_data)
         training_obs, training_labels, training_times_sub, training_actions_sub = zip(
             *training_data
@@ -186,9 +194,7 @@ def learn_reward(
             actions_i, actions_j = training_actions_sub[i]
 
             traj_i, traj_j = np.array(traj_i), np.array(traj_j)
-            traj_i, traj_j = torch.from_numpy(traj_i).float().to(
-                device
-            ), torch.from_numpy(traj_j).float().to(device)
+            traj_i, traj_j = torch.from_numpy(traj_i).float().to(device), torch.from_numpy(traj_j).float().to(device)
             labels = torch.from_numpy(labels).to(device)
             num_frames_i, num_frames_j = len(traj_i), len(traj_j)
 
@@ -196,149 +202,22 @@ def learn_reward(
             optimizer.zero_grad()
 
             # forward + backward + optimize
-            (
-                outputs,
-                abs_rewards,
-                z1,
-                z2,
-                mu1,
-                mu2,
-                logvar1,
-                logvar2,
-            ) = reward_network.forward(traj_i, traj_j)
+            outputs, abs_rewards, z1, z2, mu1, mu2, logvar1, logvar2 = reward_network.forward(traj_i, traj_j)
             outputs = outputs.unsqueeze(0)
 
-            decoded1 = reward_network.decode(z1)
-            decoded2 = reward_network.decode(z2)
-            reconstruction_loss_1 = 10 * reconstruction_loss(
-                decoded1, traj_i, mu1, logvar1
-            )
-            reconstruction_loss_2 = 10 * reconstruction_loss(
-                decoded2, traj_j, mu2, logvar2
-            )
-
-            t1_i, t2_i = np.random.randint(0, len(times_i)), np.random.randint(
-                0, len(times_i)
-            )
-            t1_j, t2_j = np.random.randint(0, len(times_j)), np.random.randint(
-                0, len(times_j)
-            )
-
-            est_dt_i = reward_network.estimate_temporal_difference(
-                mu1[t1_i].unsqueeze(0), mu1[t2_i].unsqueeze(0)
-            )
-            est_dt_j = reward_network.estimate_temporal_difference(
-                mu2[t1_j].unsqueeze(0), mu2[t2_j].unsqueeze(0)
-            )
-            real_dt_i = (times_i[t2_i] - times_i[t1_i]) / 100.0
-            real_dt_j = (times_j[t2_j] - times_j[t1_j]) / 100.0
-
-            actions_1 = reward_network.estimate_inverse_dynamics(mu1[0:-1], mu1[1:])
-            actions_2 = reward_network.estimate_inverse_dynamics(mu2[0:-1], mu2[1:])
-            target_actions_1 = torch.LongTensor(actions_i[1:]).to(device)
-            target_actions_2 = torch.LongTensor(actions_j[1:]).to(device)
-
-            inverse_dynamics_loss_1 = (
-                inverse_dynamics_loss(actions_1, target_actions_1) / 1.9
-            )
-            inverse_dynamics_loss_2 = (
-                inverse_dynamics_loss(actions_2, target_actions_2) / 1.9
-            )
-
-            forward_dynamics_distance = (
-                5  # 1 if epoch <= 1 else np.random.randint(1, min(1, max(epoch, 4)))
-            )
-            forward_dynamics_actions1 = target_actions_1
-            forward_dynamics_actions2 = target_actions_2
-            forward_dynamics_onehot_actions_1 = torch.zeros(
-                (num_frames_i - 1, reward_network.ACTION_DIMS),
-                dtype=torch.float32,
-                device=device,
-            )
-            forward_dynamics_onehot_actions_2 = torch.zeros(
-                (num_frames_j - 1, reward_network.ACTION_DIMS),
-                dtype=torch.float32,
-                device=device,
-            )
-
-            forward_dynamics_onehot_actions_1.scatter_(
-                1, forward_dynamics_actions1.unsqueeze(1), 1.0
-            )
-            forward_dynamics_onehot_actions_2.scatter_(
-                1, forward_dynamics_actions2.unsqueeze(1), 1.0
-            )
-
-            forward_dynamics_1 = reward_network.forward_dynamics(
-                mu1[:-forward_dynamics_distance],
-                forward_dynamics_onehot_actions_1[
-                    : (num_frames_i - forward_dynamics_distance)
-                ],
-            )
-            forward_dynamics_2 = reward_network.forward_dynamics(
-                mu2[:-forward_dynamics_distance],
-                forward_dynamics_onehot_actions_2[
-                    : (num_frames_j - forward_dynamics_distance)
-                ],
-            )
-            for fd_i in range(forward_dynamics_distance - 1):
-                forward_dynamics_1 = reward_network.forward_dynamics(
-                    forward_dynamics_1,
-                    forward_dynamics_onehot_actions_1[
-                        fd_i + 1 : (num_frames_i - forward_dynamics_distance + fd_i + 1)
-                    ],
-                )
-                forward_dynamics_2 = reward_network.forward_dynamics(
-                    forward_dynamics_2,
-                    forward_dynamics_onehot_actions_2[
-                        fd_i + 1 : (num_frames_j - forward_dynamics_distance + fd_i + 1)
-                    ],
-                )
-
-            forward_dynamics_loss_1 = 100 * forward_dynamics_loss(
-                forward_dynamics_1, mu1[forward_dynamics_distance:]
-            )
-            forward_dynamics_loss_2 = 100 * forward_dynamics_loss(
-                forward_dynamics_2, mu2[forward_dynamics_distance:]
-            )
-
-            dt_loss_i = 4 * temporal_difference_loss(
-                est_dt_i,
-                torch.tensor(((real_dt_i,),), dtype=torch.float32, device=device),
-            )
-            dt_loss_j = 4 * temporal_difference_loss(
-                est_dt_j,
-                torch.tensor(((real_dt_j,),), dtype=torch.float32, device=device),
-            )
-
+            # compute losses
+            losses_i = compute_losses(reward_network, z1, mu1, logvar1, traj_i, times_i, num_frames_i, actions_i)
+            losses_j = compute_losses(reward_network, z2, mu2, logvar2, traj_j, times_j, num_frames_j, actions_j)
             trex_loss = loss_criterion(outputs, labels.long())
-
-            # loss = trex_loss + l1_reg * abs_rewards + reconstruction_loss_1 + reconstruction_loss_2 + dt_loss_i + dt_loss_j + inverse_dynamics_loss_1 + inverse_dynamics_loss_2
-            # reconstruction_loss_1 + reconstruction_loss_2 +
+            
             if loss_fn == "trex":  # only use trex loss
                 loss = trex_loss
             elif loss_fn == "ss":  # only use self-supervised loss
-                loss = (
-                    dt_loss_i
-                    + dt_loss_j
-                    + (inverse_dynamics_loss_1 + inverse_dynamics_loss_2)
-                    + forward_dynamics_loss_1
-                    + forward_dynamics_loss_2
-                    + reconstruction_loss_1
-                    + reconstruction_loss_2
-                )
+                loss = losses_i + losses_j
             elif loss_fn == "trex+ss":
-                loss = (
-                    dt_loss_i
-                    + dt_loss_j
-                    + (inverse_dynamics_loss_1 + inverse_dynamics_loss_2)
-                    + forward_dynamics_loss_1
-                    + forward_dynamics_loss_2
-                    + reconstruction_loss_1
-                    + reconstruction_loss_2
-                    + trex_loss
-                )
+                loss = losses_i + losses_j + trex_loss
 
-            if i < len(training_labels) * validation_split:
+            if i < len(training_data) * validation_split:
                 loss.backward()
                 optimizer.step()
 
@@ -358,10 +237,6 @@ def learn_reward(
     print("finished training")
 
 
-def predict_traj_return(net, traj):
-    return sum(predict_reward_sequence(net, traj))
-
-
 def predict_reward_sequence(net, traj):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     rewards_from_obs = []
@@ -376,21 +251,16 @@ def predict_reward_sequence(net, traj):
 
 def calc_accuracy(reward_network, training_inputs, training_outputs):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    loss_criterion = nn.CrossEntropyLoss()
     num_correct = 0.0
     with torch.no_grad():
         for i in range(len(training_inputs)):
             label = training_outputs[i]
             traj_i, traj_j = training_inputs[i]
-            traj_i = np.array(traj_i)
-            traj_j = np.array(traj_j)
-            traj_i = torch.from_numpy(traj_i).float().to(device)
-            traj_j = torch.from_numpy(traj_j).float().to(device)
+            traj_i, traj_j = np.array(traj_i), np.array(traj_j)
+            traj_i, traj_j = torch.from_numpy(traj_i).float().to(device), torch.from_numpy(traj_j).float().to(device)
 
             # forward to get logits
-            outputs, abs_return, z1, z2, _, _, _, _ = reward_network.forward(
-                traj_i, traj_j
-            )
+            outputs, _, _, _, _, _, _, _ = reward_network.forward(traj_i, traj_j)
             _, pred_label = torch.max(outputs, 0)
             if pred_label.item() == label:
                 num_correct += 1.0
@@ -398,33 +268,28 @@ def calc_accuracy(reward_network, training_inputs, training_outputs):
 
 
 if __name__ == "__main__":
-    env_name = "breakout"
-    loss_fn = "trex+ss"
-    lr = 0.0001
-    weight_decay = 0.001
+    parser = argparse.ArgumentParser(description=None)
+    parser.add_argument('--env_name', default='', help='Select the environment name to run, i.e. pong')
+    parser.add_argument('--reward_model_path', default='', help="name and location for learned model params, e.g. ./learned_models/breakout.params")
+    parser.add_argument('--seed', default=0, help="random seed for experiments")
+    parser.add_argument('--models_dir', default = ".", help="path to directory that contains a models directory in which the checkpoint models for demos are stored")
+    parser.add_argument('--encoding_dims', default = 64, type = int, help = "number of dimensions in the latent space")
+    parser.add_argument('--loss_fn', default='trex+ss', help="ss: selfsupervised, trex: only trex, trex+ss: both trex and selfsupervised")
+    args = parser.parse_args()
+
+    lr, weight_decay = 1e-4, 1e-3
     encoding_dims = 64
     ACTION_DIMS = 4
-    reward_model_path = "../reward_model"
     l1_reg = 0.0
-    num_iter = 2 if env_name == "enduro" and loss_fn == "trex+ss" else 1
+    num_iter = 2 if args.env_name == "enduro" and args.loss_fn == "trex+ss" else 1
 
     folder = "../training_data"
-    training_obs = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
-    training_labels = np.load(f"{folder}/training_labels.npy", allow_pickle=True)
-    training_actions = np.load(f"{folder}/training_actions.npy", allow_pickle=True)
-    training_times = np.load(f"{folder}/training_times.npy", allow_pickle=True)
+    obs = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
+    labels = np.load(f"{folder}/training_labels.npy", allow_pickle=True)
+    actions = np.load(f"{folder}/training_actions.npy", allow_pickle=True)
+    times = np.load(f"{folder}/training_times.npy", allow_pickle=True)
     demonstrations = np.load(f"{folder}/demonstrations.npy", allow_pickle=True)
     sorted_returns = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
-
-    for i in [
-        training_obs,
-        training_labels,
-        training_actions,
-        training_times,
-        demonstrations,
-        sorted_returns,
-    ]:
-        print(i.shape)
 
     # Now we create a reward network and optimize it using the training data.
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -433,26 +298,13 @@ if __name__ == "__main__":
     import torch.optim as optim
 
     optimizer = optim.Adam(reward_net.parameters(), lr=lr, weight_decay=weight_decay)
-    learn_reward(
-        reward_net,
-        optimizer,
-        training_obs,
-        training_labels,
-        training_times,
-        training_actions,
-        num_iter,
-        l1_reg,
-        loss_fn,
-    )
+    learn_reward(reward_net, optimizer, obs, labels, actions, times, num_iter, l1_reg, args.loss_fn,)
     # save reward network
-    torch.save(reward_net.state_dict(), reward_model_path)
+    torch.save(reward_net.state_dict(), args.reward_model_path)
 
     # print out predicted cumulative returns and actual returns
     with torch.no_grad():
-        pred_returns = [
-            predict_traj_return(reward_net, traj[0]) for traj in demonstrations
-        ]
+        pred_returns = [sum(predict_reward_sequence(reward_net, traj[0])) for traj in demonstrations]
     for i, p in enumerate(pred_returns):
         print(i, p, sorted_returns[i])
-
-    print("accuracy", calc_accuracy(reward_net, training_obs, training_labels))
+    print("accuracy", calc_accuracy(reward_net, obs, labels))
