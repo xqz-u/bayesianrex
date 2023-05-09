@@ -6,6 +6,7 @@ code/model_checkpoints/*
 # model_checkpoints
 training_data.zip
 training_data/*
+**/.xqz-u-egg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
