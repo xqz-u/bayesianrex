@@ -45,13 +45,13 @@ class Net(nn.Module):
         self.normal = tdist.Normal(0, 1)
         self.sigmoid = nn.Sigmoid()
         self.ACTION_DIMS = ACTION_DIMS
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print("Intermediate dimension calculated to be: " + str(intermediate_dimension))
 
     def reparameterize(self, mu, var):  # var is actually the log variance
         if self.training:
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             std = var.mul(0.5).exp()
-            eps = self.normal.sample(mu.shape).to(device)
+            eps = self.normal.sample(mu.shape).to(self.device)
             return eps.mul(std).add(mu)
         else:
             return mu
@@ -60,8 +60,6 @@ class Net(nn.Module):
         # print("input shape of trajectory:")
         # print(traj.shape)
         """calculate cumulative return of trajectory"""
-        sum_rewards, sum_abs_rewards = 0, 0
-        sum_abs_rewards = 0
         x = traj.permute(0, 3, 1, 2)  # get into NCHW format
 
         # compute forward pass of reward network (we parallelize across frames so batch size is length of partial trajectory)
@@ -72,8 +70,8 @@ class Net(nn.Module):
         z = self.reparameterize(mu, var)
 
         r = self.fc1(z)
-        sum_rewards += torch.sum(r)
-        sum_abs_rewards += torch.sum(torch.abs(r))
+        sum_rewards = torch.sum(r)
+        sum_abs_rewards = torch.sum(torch.abs(r))
         return sum_rewards, sum_abs_rewards, mu, var, z
 
     def estimate_temporal_difference(self, z1, z2):
@@ -115,15 +113,10 @@ def reconstruction_loss(decoded, target, mu, logvar):
     assert num_elements == target_num_elements
 
     bce = F.binary_cross_entropy(decoded, target)
-    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    kld /= num_elements
-    # print("bce: " + str(bce) + " kld: " + str(kld))
+    kld = (-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())) / num_elements
     return bce + kld
 
-def compute_losses(reward_network, z, mu, logvar, traj, times, num_frames, actions_):
-    inverse_dynamics_loss_fn = nn.CrossEntropyLoss()
-    forward_dynamics_loss_fn = nn.MSELoss()
-    temporal_difference_loss = nn.MSELoss()
+def compute_losses(reward_network, z, mu, logvar, traj, times, num_frames, actions_, inverse_dym_loss, forward_dym_loss, temporal_diff_loss):
     decoded = reward_network.decode(z)
     recon_loss = 10 * reconstruction_loss(decoded, traj, mu, logvar)
     t1, t2 = tuple(np.random.randint(low=0, high=len(times), size=2))
@@ -133,7 +126,7 @@ def compute_losses(reward_network, z, mu, logvar, traj, times, num_frames, actio
     actions = reward_network.estimate_inverse_dynamics(mu[0:-1], mu[1:])
     target_actions = torch.LongTensor(actions_[1:]).to(device)
 
-    inverse_dynamics_loss = (inverse_dynamics_loss_fn(actions, target_actions) / 1.9)
+    inverse_dynamics_loss = (inverse_dym_loss(actions, target_actions) / 1.9)
     forward_dynamics_distance = 5
     forward_dynamics_onehot_actions_1 = torch.zeros((num_frames - 1, reward_network.ACTION_DIMS), dtype=torch.float32, device=device)
     forward_dynamics_onehot_actions_1.scatter_(1, target_actions.unsqueeze(1), 1.0)
@@ -153,8 +146,8 @@ def compute_losses(reward_network, z, mu, logvar, traj, times, num_frames, actio
             ],
         )
 
-    forward_dynamics_loss = 100 * forward_dynamics_loss_fn(forward_dynamics, mu[forward_dynamics_distance:])
-    dt_loss_i = 4 * temporal_difference_loss(est_dt, torch.tensor(((real_dt,),), dtype=torch.float32, device=device))
+    forward_dynamics_loss = 100 * forward_dym_loss(forward_dynamics, mu[forward_dynamics_distance:])
+    dt_loss_i = 4 * temporal_diff_loss(est_dt, torch.tensor(((real_dt,),), dtype=torch.float32, device=device))
 
     return sum([dt_loss_i, forward_dynamics_loss, recon_loss, inverse_dynamics_loss])
 
@@ -167,7 +160,6 @@ def learn_reward(
         actions,
         times,
         num_iter,
-        l1_reg,
         loss_fn,
         checkpoint_dir="../model_checkpoints"
     ):
@@ -177,7 +169,8 @@ def learn_reward(
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Assume that we are on a CUDA machine, then this should print a CUDA device:
     print(device)
-    loss_criterion = nn.CrossEntropyLoss()
+    loss_criterion, inverse_dym_loss = nn.CrossEntropyLoss(), nn.CrossEntropyLoss()
+    forward_dynamics_loss_fn, temporal_difference_loss_fn = nn.MSELoss(), nn.MSELoss()
 
     cum_loss = 0.0
     training_data = list(zip(inputs, outputs, times, actions))
@@ -206,8 +199,8 @@ def learn_reward(
             outputs = outputs.unsqueeze(0)
 
             # compute losses
-            losses_i = compute_losses(reward_network, z1, mu1, logvar1, traj_i, times_i, num_frames_i, actions_i)
-            losses_j = compute_losses(reward_network, z2, mu2, logvar2, traj_j, times_j, num_frames_j, actions_j)
+            losses_i = compute_losses(reward_network, z1, mu1, logvar1, traj_i, times_i, num_frames_i, actions_i, inverse_dym_loss=inverse_dym_loss, forward_dym_loss=forward_dynamics_loss_fn, temporal_diff_loss=temporal_difference_loss_fn)
+            losses_j = compute_losses(reward_network, z2, mu2, logvar2, traj_j, times_j, num_frames_j, actions_j, inverse_dym_loss=inverse_dym_loss, forward_dym_loss=forward_dynamics_loss_fn, temporal_diff_loss=temporal_difference_loss_fn)
             trex_loss = loss_criterion(outputs, labels.long())
             
             if loss_fn == "trex":  # only use trex loss
@@ -222,9 +215,7 @@ def learn_reward(
                 optimizer.step()
 
             # print stats to see if learning
-            item_loss = loss.item()
-            # print("total", item_loss)
-            cum_loss += item_loss
+            cum_loss += loss.item()
             if (i + 1) % 1000 == 0:
                 # print(i)
                 print("loss {}".format(cum_loss))
@@ -298,7 +289,7 @@ if __name__ == "__main__":
     import torch.optim as optim
 
     optimizer = optim.Adam(reward_net.parameters(), lr=lr, weight_decay=weight_decay)
-    learn_reward(reward_net, optimizer, obs, labels, actions, times, num_iter, l1_reg, args.loss_fn,)
+    learn_reward(reward_net, optimizer, obs, labels, actions, times, num_iter, args.loss_fn,)
     # save reward network
     torch.save(reward_net.state_dict(), args.reward_model_path)
 

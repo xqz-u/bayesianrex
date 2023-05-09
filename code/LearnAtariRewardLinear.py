@@ -15,7 +15,6 @@ from run_test import *
 from baselines.common.trex_utils import preprocess
 import time
 
-
 def generate_novice_demos(env, env_name, agent, model_dir, visualize):
     check_min, check_max, check_step = 50, 600, 50
     checkpoints = []
