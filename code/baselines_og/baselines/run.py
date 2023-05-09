@@ -1,19 +1,20 @@
-import sys
 import multiprocessing
 import os.path as osp
-import gym
+import sys
 from collections import defaultdict
-import tensorflow as tf
-import numpy as np
-
-from baselines.common.vec_env.vec_video_recorder import VecVideoRecorder
-from baselines.common.vec_env.vec_frame_stack import VecFrameStack
-from baselines.common.cmd_util import common_arg_parser, parse_unknown_args, make_vec_env, make_env
-from baselines.common.tf_util import get_session
-from baselines import logger
 from importlib import import_module
 
-from baselines.common.vec_env.vec_normalize import VecNormalize, VecNormalizeRewards
+import gym
+import numpy as np
+import tensorflow as tf
+from baselines import logger
+from baselines.common.cmd_util import (common_arg_parser, make_env,
+                                       make_vec_env, parse_unknown_args)
+from baselines.common.tf_util import get_session
+from baselines.common.vec_env.vec_frame_stack import VecFrameStack
+from baselines.common.vec_env.vec_normalize import (VecNormalize,
+                                                    VecNormalizeRewards)
+from baselines.common.vec_env.vec_video_recorder import VecVideoRecorder
 
 try:
     from mpi4py import MPI
@@ -122,8 +123,8 @@ def build_env(args):
         env = make_vec_env(env_id, env_type, args.num_env or 1, seed, reward_scale=args.reward_scale)
         print("made env")
     if args.custom_reward != '':
-        from baselines.common.vec_env import VecEnv, VecEnvWrapper
         import baselines.common.custom_reward_wrapper as W
+        from baselines.common.vec_env import VecEnv, VecEnvWrapper
         assert isinstance(env,VecEnv) or isinstance(env,VecEnvWrapper)
 
         custom_reward_kwargs = eval(args.custom_reward_kwargs)
