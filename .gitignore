@@ -7,6 +7,15 @@ code/model_checkpoints/*
 training_data.zip
 training_data/*
 **/.xqz-u-egg
+data/*
+logs/*
+tests/assets/*
+
+
+
+
+
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -8,4 +8,5 @@ envs_id_mapper = {
     "montezumarevenge": "MontezumaRevengeNoFrameskip-v4",
     "hero": "HeroNoFrameskip-v4",
     "beamrider": "BeamRiderNoFrameskip-v4",
+    "seaquest": "SeaquestNoFrameskip-v4",
 }

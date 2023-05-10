@@ -1,6 +1,4 @@
 import logging
-from pathlib import Path
-from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,15 +7,21 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.atari_wrappers import AtariWrapper
 from stable_baselines3.common.env_util import make_atari_env, make_vec_env
 from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.vec_env.base_vec_env import VecEnv
 
+import config
 import constants
 
 logger = logging.getLogger(__name__)
 
 
-def make_base_atari_env(env_id: str, **kwargs):
+def framestack_env(env: VecEnv, n_stack: int = 4) -> VecFrameStack:
+    return VecFrameStack(env, n_stack=n_stack)
+
+
+def make_base_atari_env(env_id: str, **kwargs) -> VecEnv:
     logger.debug("Env: %s args: %s", env_id, kwargs)
-    return VecFrameStack(make_atari_env(env_id, **kwargs), n_stack=4)
+    return framestack_env(make_atari_env(env_id, **kwargs))
 
 
 def mask_score(obs: np.ndarray, env_name: str) -> np.ndarray:
@@ -42,10 +46,10 @@ def mask_score(obs: np.ndarray, env_name: str) -> np.ndarray:
         obs_copy[-30:, :, :] = 0
     # elif env_name == "qbert":
     #     obs_copy[:12, :, :] = 0
-    # elif env_name == "seaquest":
-    #     # cuts out divers and oxygen
-    #     obs_copy[:12, :, :] = 0
-    #     obs_copy[-16:, :, :] = 0
+    elif env_name == "seaquest":
+        # cuts out divers and oxygen
+        obs_copy[:12, :, :] = 0
+        obs_copy[-16:, :, :] = 0
     # elif env_name == "mspacman":
     #     obs_copy[-15:, :, :] = 0  # mask score and number of lives left
     # elif env_name == "videopinball":
@@ -57,6 +61,9 @@ def mask_score(obs: np.ndarray, env_name: str) -> np.ndarray:
 
 # TODO add possibility to load from checkpoints
 # TODO (opt) VecVideoRecorder
+# TODO make it so that it works for both the T-REX agents (train to generate
+# demonstrations), so maybe no score masking and different params, and with the
+# same params as B-REX
 # NOTE grayscale image normalization (/ 255) occurs in ActorCriticCnnPolicy.extract_features()
 def make_ppo_agent(
     atari_env_name: str,
@@ -91,22 +98,20 @@ def make_ppo_agent(
     vec_env_kwargs = {"n_envs": n_envs, "seed": seed}
     atari_wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
     if hide_scores:
-        env = make_vec_env(
-            env_id,
-            **vec_env_kwargs,
-            wrapper_class=lambda env, **_: TransformObservation(
-                AtariWrapper(env, **atari_wrapper_kwargs),
-                lambda obs: mask_score(obs, atari_env_name),
-            ),
+        env = framestack_env(
+            make_vec_env(
+                env_id,
+                **vec_env_kwargs,
+                wrapper_class=lambda env, **_: TransformObservation(
+                    AtariWrapper(env, **atari_wrapper_kwargs),
+                    lambda obs: mask_score(obs, atari_env_name),
+                ),
+            )
         )
     else:
         env = make_base_atari_env(
             env_id, **vec_env_kwargs, wrapper_kwargs=atari_wrapper_kwargs
         )
-    env = VecFrameStack(env, n_stack=4)
-    # TODO make it so that it works for both the T-REX agents (train to generate
-    # demonstrations), so maybe no score masking and different params, and with the
-    # same params as B-REX
     return PPO(
         "CnnPolicy",
         env,
@@ -118,23 +123,28 @@ def make_ppo_agent(
     )
 
 
-# FIXME bug in non-darkened pics
-def test_score_obfuscation(plot_dir: Union[str, Path], n_envs: int = 2):
+# TODO check that obfuscation is the same as in old code
+def test_score_obfuscation(n_envs: int = 1):
+    """
+    Checks that scores and lives for Atari games known in
+    `constants.envs_id_mapper` are masked correctly, and outputs corresponding
+    frames in `plot_dir`.
+    """
+
     def plot_and_save(ag, env_name, hide):
         vec_env = ag.get_env()
         obs = vec_env.reset()
-        print(obs.shape)
-        for i, env_obs in enumerate(obs.squeeze()):
+        print(f"observation shape: {obs.shape}")
+        for i, env_obs in enumerate(obs):
+            # after a env.reset() only the last of 4 frames is populated
             plt.imshow(env_obs[3], cmap="gray")
             fname = (
-                savedir
-                / f"{constants.envs_id_mapper[env_name]}{'_dark' if hide else ''}_{i}.png"
+                config.TEST_ASSETS_DIR
+                / f"{constants.envs_id_mapper[env_name]}_{i}{'_dark' if hide else ''}.png"
             )
             print(f"Save to {fname}")
             plt.savefig(fname)
 
-    savedir = Path(plot_dir)
-    savedir.mkdir(parents=True, exist_ok=True)
     for env_name in constants.envs_id_mapper:
         print(env_name)
         ag = make_ppo_agent(env_name, hide_scores=False, n_envs=n_envs)
