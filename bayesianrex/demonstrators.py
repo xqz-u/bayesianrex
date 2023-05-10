@@ -39,20 +39,18 @@ class DelayedCheckpointCallback(CheckpointCallback):
         return True
 
 
-# TODO video record? Monitor wrapper?
+def learn_all_atari_demonstrators():
+    for i, env_name in enumerate(constants.envs_id_mapper):
+        learn_demonstrator(env=env_name, seed=i)
+
+
+# TODO video record + Monitor wrapper?
 # TODO do the authors of T-REX use less than 1e6 total timesteps?!
 # NOTE checkpointing is done every (save_freq // n_envs) * n_envs, so it can
 # happen that it is not precisely save_freq (e.g. 50 // 4 * 4 = 48). So enforce
 # the max compatible amount of environments.
-if __name__ == "__main__":
-    import utils
-
-    utils.setup_root_logging()
-
-    parser = create_parser()
-    args = parser.parse_args()
-
-    if args.env == "seaquest":
+def learn_demonstrator(**kwargs):
+    if kwargs["env"] == "seaquest":
         save_freq = 5
         # easier to run a single environment since ckpts happen often
         n_envs = 1
@@ -64,7 +62,7 @@ if __name__ == "__main__":
         n_envs = diffs[diffs >= 0].min()
         logger.info(f"n_envs: {n_envs}")
 
-    env_id = constants.envs_id_mapper.get(args.env)
+    env_id = constants.envs_id_mapper.get(kwargs["env"])
     env = rl_utils.make_base_atari_env(env_id, n_envs=n_envs)
 
     run_config = {
@@ -73,11 +71,11 @@ if __name__ == "__main__":
         "env_name": env_id,
         "n_envs": n_envs,
     }
-    if args.seed is not None:
-        run_config["seed"] = args.seed
+    if kwargs["seed"] is not None:
+        run_config["seed"] = kwargs["seed"]
     run = wandb.init(
         project="sb3",
-        dir=config.LOGS_DIR,
+        dir=config.WANDB_LOGS_DIR,
         config=run_config,
         sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
         # monitor_gym=True,  # auto-upload the videos of agents playing the game
@@ -87,13 +85,13 @@ if __name__ == "__main__":
     agent = sb3.PPO(
         run_config["policy_type"],
         env,
-        seed=args.seed,
-        tensorboard_log=config.LOGS_DIR / "wandb" / "runs" / run.id,
+        seed=kwargs["seed"],
+        tensorboard_log=config.TENSORFLOW_LOGS_DIR / run.id,
         verbose=1,
     )
 
     ckpt_callback_class = (
-        DelayedCheckpointCallback if args.env == "enduro" else CheckpointCallback
+        DelayedCheckpointCallback if kwargs["seed"] == "enduro" else CheckpointCallback
     )
     ckpt_callback = ckpt_callback_class(
         save_freq=max(save_freq // n_envs, 1),
@@ -108,3 +106,13 @@ if __name__ == "__main__":
     )
 
     run.finish()
+
+
+if __name__ == "__main__":
+    import utils
+
+    utils.setup_root_logging()
+
+    parser = create_parser()
+    args = parser.parse_args()
+    learn_demonstrator(**vars(args))
