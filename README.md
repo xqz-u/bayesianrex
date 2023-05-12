@@ -24,8 +24,10 @@ python -m demonstrators
 ```
 
 wandb, tensorboard and csv logs for the environments listed in
-`bayesianrex_cc.constants.envs_id_mapper` are logged under at the root of the
-git repo. Hyperparameters for the `stable_baselines3` PPO agent for
+`bayesianrex_cc.constants.envs_id_mapper` will be logged under the root of
+the git repo; they are also available
+[here](https://drive.google.com/drive/folders/1usrIO5k9-KNfgFJQf74Qr0NfDwy9xKSM?usp=share_link).
+Hyperparameters for the `stable_baselines3` PPO agent for
 each environment are read from
 `bayesianrex_cc/rl-baselines3-zoo/hyperparams/ppo.yml`.
 
