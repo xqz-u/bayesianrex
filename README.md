@@ -30,5 +30,14 @@ each environment are read from
 `bayesianrex_cc/rl-baselines3-zoo/hyperparams/ppo.yml`.
 
 # TODO
-- [ ] transfer repo under `xqz-u/bayesianrex` new branch
-- [ ] `isort` + `black` github actions
+
+## Bureaucracy
+- [X] transfer repo under `xqz-u/bayesianrex` new branch `classic_control`
+- [ ] git submodule for `rl_zoo3`
+- [ ] `isort` + `black` github actions; provisioned
+	[here](https://towardsdatascience.com/black-with-git-hub-actions-4ffc5c61b5fe)
+	but it adds a new commit, which I don't like. Maybe install a local
+	pre-commit hook
+
+## Code
+A lot, I'll write a better description tmrw
