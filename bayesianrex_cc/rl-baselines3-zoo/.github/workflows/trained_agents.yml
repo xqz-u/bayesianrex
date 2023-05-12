@@ -1,0 +1,55 @@
+# This workflow will install Python dependencies, run check on trained agents
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Check-Trained-Agents
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    env:
+      TERM: xterm-256color
+      FORCE_COLOR: 1
+
+    # Skip CI if [ci skip] in the commit message
+    if: "! contains(toJSON(github.event.commits.*.message), '[ci skip]')"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.7", "3.8", "3.9", "3.10"]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+
+        # Install Atari Roms
+        pip install autorom
+        wget https://gist.githubusercontent.com/jjshoots/61b22aefce4456920ba99f2c36906eda/raw/00046ac3403768bfe45857610a3d333b8e35e026/Roms.tar.gz.b64
+        base64 Roms.tar.gz.b64 --decode &> Roms.tar.gz
+        AutoROM --accept-license --source-file Roms.tar.gz
+
+        # cpu version of pytorch - faster to download
+        pip install torch==1.11.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+        pip install pybullet==3.2.5
+        pip install -r requirements.txt
+        # Use headless version
+        pip install opencv-python-headless
+        pip install highway-env==1.8.1
+        # Add support for pickle5 protocol
+        # TODO: remove me when dropping python 3.7
+        pip install pickle5
+        pip install -e .
+    - name: Check trained agents
+      run: |
+        make check-trained-agents
