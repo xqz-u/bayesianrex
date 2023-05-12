@@ -40,6 +40,9 @@ each environment are read from
 	[here](https://towardsdatascience.com/black-with-git-hub-actions-4ffc5c61b5fe)
 	but it adds a new commit, which I don't like. Maybe install a local
 	pre-commit hook
+- [ ] Lisa gpu-compatible env (?)
+- [ ] Add possibility to specify assets folders where needed, e.g. in Lisa it's
+	  important to dump stuff under `/scratch/` or `/project/`
 
 ## Code
 A lot, I'll write a better description tmrw
