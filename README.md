@@ -57,6 +57,10 @@ cd bayesianrex_cc
 PYTHONPATH="./rl-baselines3-zoo:$PYTHONPATH" python -m training_data --env cartpole --ckpts-dir ../logs/ppo/CartPole-v1_1 --snippet-min-len 50 --snippet-max-len 100 --save-dir ../data
 ```
 
+Training data created by Marco on 14/05/2023 using the default seed (42) are
+available
+[here](https://drive.google.com/drive/folders/11K4-8kksIFYM5IAe_9JcyLsU_Kiomv0-?usp=share_link).
+
 # NOTES
 ## Training data
 For Atari the authors do 2 things:
