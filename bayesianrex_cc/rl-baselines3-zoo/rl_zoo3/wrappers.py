@@ -7,6 +7,18 @@ from gymnasium.core import ObsType
 from sb3_contrib.common.wrappers import TimeFeatureWrapper  # noqa: F401 (backward compatibility)
 from stable_baselines3.common.type_aliases import GymResetReturn, GymStepReturn
 
+class CustomRewardWrapper(gym.Wrapper):
+    def __init__(self, env, reward_model):
+        super().__init__(env)
+        self.env = env
+        self.reward_model
+        
+    def step(self, action):
+        next_state, reward, done, info = self.env.step(action)
+        custom_reward = self.reward_model.step_reward()
+
+        return next_state, custom_reward, done, info
+
 
 class TruncatedOnSuccessWrapper(gym.Wrapper):
     """

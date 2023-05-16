@@ -51,7 +51,7 @@ import rl_zoo3.import_envs  # noqa: F401 pytype: disable=import-error
 from rl_zoo3.callbacks import SaveVecNormalizeCallback, TrialEvalCallback
 from rl_zoo3.hyperparams_opt import HYPERPARAMS_SAMPLER
 from rl_zoo3.utils import ALGOS, get_callback_list, get_class_by_name, get_latest_run_id, get_wrapper_class, linear_schedule
-
+from rl_zoo3.wrappers import CustomRewardWrapper
 
 class ExperimentManager:
     """
@@ -117,6 +117,7 @@ class ExperimentManager:
         self.normalize = False
         self.normalize_kwargs: Dict[str, Any] = {}
         self.env_wrapper = None
+        self.env_wrapper_R = True
         self.frame_stack = None
         self.seed = seed
         self.optimization_log_path = optimization_log_path
@@ -186,6 +187,8 @@ class ExperimentManager:
         """
         hyperparams, saved_hyperparams = self.read_hyperparameters()
         hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(hyperparams)
+        if self.env_wrapper_R:
+            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v0"))
 
         self.create_log_folder()
         self.create_callbacks()
@@ -835,7 +838,7 @@ class ExperimentManager:
         if self.verbose > 0:
             print(f"Sampler: {self.sampler} - Pruner: {self.pruner}")
 
-        study = optuna.create_study(
+        study =     .create_study(
             sampler=sampler,
             pruner=pruner,
             storage=self.storage,
