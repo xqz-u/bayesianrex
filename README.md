@@ -13,18 +13,17 @@ ln -s rl-baselines3-zoo rl_baselines3_zoo
 
 **NOTE** The symlink to `rl_baselines3_zoo` is necessary to be able to import
 the rl baselines zoo library in user code (also renaming the directory is fine),
-since Python packages cannot contain dashes. To avoid having to write `import
-sys; sys.path.append('./rl-baselines3-zoo/')` everywhere we want to use the zoo
-as a library, run a Python file as a module adding the zoo to the PYTHONPATH,
-e.g. with `training_data.py`:
+since Python package names cannot contain dashes. To avoid writing
+`import sys; sys.path.append('./bayesianrex_cc/rl-baselines3-zoo/')` everywhere
+we want to use the zoo as a library, run a Python file as a module adding the
+zoo to the PYTHONPATH, e.g. with `bayesianrex_cc/dataset/training_data.py`:
 
 ```sh
-cd bayesianrex_cc
-PYTHONPATH="./rl-baselines3-zoo:${PYTHONPATH}" python -m training_data
+PYTHONPATH="./bayesianrex_cc/rl-baselines3-zoo:${PYTHONPATH}" python -m bayesianrex_cc.dataset.training_data
 ```
 
-Or `export PYTHONPATH="./rl-baselines3-zoo:${PYTHONPATH}"` once in your current
-shell.
+Or `export PYTHONPATH="./bayesianrex_cc/rl-baselines3-zoo:${PYTHONPATH}"` once
+in your active shell.
 
 <!-- ```sh -->
 <!-- cd bayesianrex_cc -->
@@ -37,8 +36,7 @@ shell.
 # Train demonstrators
 ```sh
 micromamba activate bayesianrex-cc
-cd bayesianrex_cc
-python -m demonstrators
+python -m bayesianrex_cc.demonstrators
 ```
 
 wandb, tensorboard and csv logs for the environments listed in
@@ -53,8 +51,10 @@ each environment are read from
 Assuming PPO checkpoints trained on CartPole-v1 are stored at
 `./logs/ppo/CartPole-v1_1` and training data will be saved at `./data`:
 ```sh
-cd bayesianrex_cc
-PYTHONPATH="./rl-baselines3-zoo:$PYTHONPATH" python -m training_data --env cartpole --ckpts-dir ../logs/ppo/CartPole-v1_1 --snippet-min-len 50 --snippet-max-len 100 --save-dir ../data
+PYTHONPATH="./bayesianrex_cc/rl-baselines3-zoo:$PYTHONPATH" python -m \
+bayesianrex_cc.dataset.training_data  --env cartpole --ckpts-dir \
+./logs/ppo/CartPole-v1_1 --snippet-min-len 50 --snippet-max-len 100 --save-dir \
+./data
 ```
 
 Training data created by Marco on 14/05/2023 using the default seed (42) are
@@ -103,6 +103,8 @@ et al. (2020):
 - [ ] Lisa gpu-compatible env (?)
 - [ ] Add possibility to specify assets folders where needed, e.g. in Lisa it's
 	  important to dump stuff under `/scratch/` or `/project/`
+- [ ] Move absolute imports to relative ones after done developing (absolutes
+	  are more handy for developing with emacs)
 
 ## Code
 A lot, I'll write a better description tmrw

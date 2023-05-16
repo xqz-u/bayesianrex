@@ -6,8 +6,7 @@ import subprocess as sp
 
 import yaml
 
-import config
-import constants
+from bayesianrex_cc import config, constants
 
 # NOTE add --eval-freq -1 to avoid evaluation steps
 if __name__ == "__main__":

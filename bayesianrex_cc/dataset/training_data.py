@@ -8,14 +8,11 @@ import gymnasium as gym
 import joblib
 import numpy as np
 import torch
+from bayesianrex_cc import config, constants, utils
+from bayesianrex_cc.rl_baselines3_zoo.rl_zoo3.utils import ALGOS
 from stable_baselines3 import PPO
 from stable_baselines3.common.type_aliases import GymEnv
 from stable_baselines3.common.utils import set_random_seed
-
-import config
-import constants
-import utils
-from rl_baselines3_zoo.rl_zoo3.utils import ALGOS
 
 RawTrajectory = Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]
 
