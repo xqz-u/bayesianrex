@@ -146,9 +146,15 @@ if __name__ == '__main__':
             #     print("not using equal prefs", i, j, sorted_returns[i], sorted_returns[j])
     pairwise_prefs = torch.Tensor(pairwise_prefs)
 
-    num_mcmc_steps, step_size = 200000, 0.005
+    step_size, num_mcmc_steps = 5e-3, 10#2e5
     mcmc_map = mcmc_map_search(reward_net, pairwise_prefs, demo_embed, num_mcmc_steps, step_size, device)
 
+    reward_net = MLP(5, hidden_dim)
+    reward_net.load_state_dict(pretrained)
+    reward_net.fc2 = mcmc_map
+
+    torch.save(reward_net.state_dict(), '../mcmc_net.params')
+    print('Succesfully saved MAP estimate')
     # ## we need some unseen data for this, so either generate more 
     # ## or split the data into like 80% train and 20% mcmc?
 
