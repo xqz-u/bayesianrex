@@ -9,8 +9,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from bayesianrex_cc import config, constants, networks, utils
-from bayesianrex_cc.dataset.data_torch import RLDemonstrationsDataset
+import config, constants, networks, utils
+from dataset.data_torch import RLDemonstrationsDataset
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def learn_preferences(
             optimizer.zero_grad()
 
             outputs = reward_net(traj_i.to(device), traj_j.to(device))
-            loss = trex_criterion(outputs, label.squeeze())
+            loss = trex_criterion(outputs, label.squeeze().to(device))
 
             loss.backward()
             optimizer.step()
