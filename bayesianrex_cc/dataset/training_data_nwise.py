@@ -254,6 +254,7 @@ def create_training_data(
         logger.debug("Snippet len: %d", snippet_len)
         # pick nsize different random trajectories both at least `snippet_len` long
         picked_idxs = gen_snippet_idx(nsize, states, snippet_len, rng, legal_len=max_tr_len)
+        #TODO pick up here, where i left off, implement LambdaRank for n-wise (listwise with n=list size) loss
         logger.debug("i %d j %d i is best: %d", i, j, i < j)
 
         best, worst = (i, j) if i < j else (j, i)
