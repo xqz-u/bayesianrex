@@ -17,8 +17,8 @@ class MLP(nn.Module):
         # sum rewards at each state to get total return
         return torch.sum(rewards)
     
-    def step_reward(self, state: Tensor) -> Tensor:
-        x = self.get_embedding(state)
+    def step_reward(self, state_action: Tensor) -> Tensor:
+        x = self.get_embedding(state_action)
         rewards = self.fc2(x)
         return rewards.squeeze(0)
 

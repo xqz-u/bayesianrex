@@ -188,7 +188,7 @@ class ExperimentManager:
         hyperparams, saved_hyperparams = self.read_hyperparameters()
         hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(hyperparams)
         if self.env_wrapper_R:
-            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v0"))
+            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v1"), )
 
         self.create_log_folder()
         self.create_callbacks()
@@ -838,7 +838,7 @@ class ExperimentManager:
         if self.verbose > 0:
             print(f"Sampler: {self.sampler} - Pruner: {self.pruner}")
 
-        study =     .create_study(
+        study = optuna.create_study(
             sampler=sampler,
             pruner=pruner,
             storage=self.storage,

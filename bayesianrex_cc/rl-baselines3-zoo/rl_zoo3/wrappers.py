@@ -8,14 +8,16 @@ from sb3_contrib.common.wrappers import TimeFeatureWrapper  # noqa: F401 (backwa
 from stable_baselines3.common.type_aliases import GymResetReturn, GymStepReturn
 
 class CustomRewardWrapper(gym.Wrapper):
-    def __init__(self, env, reward_model):
+    def __init__(self, env, reward_net):
         super().__init__(env)
         self.env = env
-        self.reward_model
+        self.reward_net = reward_net
         
     def step(self, action):
         next_state, reward, done, info = self.env.step(action)
-        custom_reward = self.reward_model.step_reward()
+        print(next_state)
+        quit(1)
+        custom_reward = self.reward_net.step_reward()
 
         return next_state, custom_reward, done, info
 
