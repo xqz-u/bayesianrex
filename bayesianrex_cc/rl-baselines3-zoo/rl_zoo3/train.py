@@ -155,6 +155,14 @@ def train() -> None:
         "--wandb-dir", type=str, default="", help="wandb logs folder"
     )
 
+    parser.add_argument(
+        "--input_shape", type=int, default=6, help="input_shape of the reward_net"
+    )
+
+    parser.add_argument(
+        "--hidden_shape", type=int, default=64, help="input_shape of the reward_net"
+    )
+
     args = parser.parse_args()
 
     # Going through custom gym packages to let them register in the global registory

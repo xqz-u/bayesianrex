@@ -9,6 +9,7 @@ from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import torch
+from torch import Tensor
 
 import gym as gym26
 import gymnasium as gym
@@ -101,6 +102,7 @@ class ExperimentManager:
         show_progress: bool = False,
     ):
         super().__init__()
+        self.args = args
         self.algo = algo
         self.env_name = EnvironmentName(env_id)
         # Custom params
@@ -189,16 +191,19 @@ class ExperimentManager:
         hyperparams, saved_hyperparams = self.read_hyperparameters()
         hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(hyperparams)
         if self.env_wrapper_R:
-            reward_net_location = f'./data/cartpole_reward_net.pt'
-            reward_net = torch.load(reward_net_location)
-            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v0"), reward_net)
+            reward_net_location = f'../../data/cartpole_reward_net.pt'
+            reward_net = MLP(self.args.input_shape, self.args.hidden_shape)
+            checkpoint = torch.load(reward_net_location)
+            reward_net.load_state_dict(checkpoint)
+            self.reward_net = reward_net
+            env = CustomRewardWrapper(gym.make("CartPole-v0"), reward_net)
 
         self.create_log_folder()
         self.create_callbacks()
 
-        # Create env to have access to action space for action noise
-        n_envs = 1 if self.algo == "ars" or self.optimize_hyperparameters else self.n_envs
-        env = self.create_envs(n_envs, no_log=False)
+        # # Create env to have access to action space for action noise
+        # n_envs = 1 if self.algo == "ars" or self.optimize_hyperparameters else self.n_envs
+        # env = self.create_envs(n_envs, no_log=False)
 
         self._hyperparams = self._preprocess_action_noise(hyperparams, saved_hyperparams, env)
 
@@ -621,7 +626,8 @@ class ExperimentManager:
                 spec = gym26.spec(self.env_name.gym_id)
 
         def make_env(**kwargs) -> gym.Env:
-            env = spec.make(**kwargs)
+            # env = spec.make(**kwargs)
+            env = CustomRewardWrapper(gym.make("CartPole-v0"), self.reward_net)
             return env
 
         # On most env, SubprocVecEnv does not help and is quite memory hungry
@@ -918,3 +924,35 @@ class ExperimentManager:
             fig2.show()
         except (ValueError, ImportError, RuntimeError):
             pass
+
+class MLP(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.act_fn = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_dim, 1)
+        self.hidden_dim = hidden_dim
+
+    def cum_return(self, traj: Tensor) -> Tensor:
+        x = self.get_embedding(traj)
+        rewards = self.fc2(x)
+        # sum rewards at each state to get total return
+        return torch.sum(rewards)
+    
+    def step_reward(self, state_action: Tensor) -> Tensor:
+        x = self.get_embedding(state_action)
+        rewards = self.fc2(x)
+        return rewards.squeeze(0)
+
+    def forward(self, traj_i: Tensor, traj_j: Tensor) -> Tensor:
+        return torch.hstack((self.cum_return(traj_i), self.cum_return(traj_j)))
+
+    def get_embedding(self, traj: Tensor) -> Tensor:
+        embedding = self.act_fn(self.fc1(traj))
+        return embedding
+
+    def sum_embeddings(self, traj: Tensor) -> Tensor:
+        with torch.no_grad():
+            embeddings = self.get_embedding(traj)
+            return torch.sum(embeddings, dim=0)
+
