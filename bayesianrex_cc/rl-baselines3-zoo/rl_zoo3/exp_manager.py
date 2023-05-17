@@ -8,6 +8,7 @@ from collections import OrderedDict
 from pathlib import Path
 from pprint import pprint
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+import torch
 
 import gym as gym26
 import gymnasium as gym
@@ -188,7 +189,9 @@ class ExperimentManager:
         hyperparams, saved_hyperparams = self.read_hyperparameters()
         hyperparams, self.env_wrapper, self.callbacks, self.vec_env_wrapper = self._preprocess_hyperparams(hyperparams)
         if self.env_wrapper_R:
-            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v1"), )
+            reward_net_location = f'./data/cartpole_reward_net.pt'
+            reward_net = torch.load(reward_net_location)
+            self.env_wrapper = CustomRewardWrapper(gym.make("CartPole-v0"), reward_net)
 
         self.create_log_folder()
         self.create_callbacks()

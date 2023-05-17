@@ -9,8 +9,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-import config, constants, networks, utils
-from dataset.data_torch import RLDemonstrationsDataset
+from bayesianrex_cc import config, constants, networks, utils
+from bayesianrex_cc.dataset.data_torch import RLDemonstrationsDataset
 
 logger = logging.getLogger(__name__)
 

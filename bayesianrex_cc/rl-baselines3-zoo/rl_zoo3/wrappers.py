@@ -6,18 +6,18 @@ from gymnasium import spaces
 from gymnasium.core import ObsType
 from sb3_contrib.common.wrappers import TimeFeatureWrapper  # noqa: F401 (backward compatibility)
 from stable_baselines3.common.type_aliases import GymResetReturn, GymStepReturn
+import torch
 
 class CustomRewardWrapper(gym.Wrapper):
-    def __init__(self, env, reward_net):
+    def __init__(self, env, reward_model):
         super().__init__(env)
         self.env = env
-        self.reward_net = reward_net
+        self.reward_model
         
     def step(self, action):
+
         next_state, reward, done, info = self.env.step(action)
-        print(next_state)
-        quit(1)
-        custom_reward = self.reward_net.step_reward()
+        custom_reward = self.reward_model.step_reward(torch.cat((self.env, action)))
 
         return next_state, custom_reward, done, info
 
