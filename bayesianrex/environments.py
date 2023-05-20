@@ -71,10 +71,6 @@ def create_atari_env(
         ),
         n_stack=4,
     )
-    # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
-    # 'render_mode' after wrapping, which is required by VecVideoRecorder
-    # (make_atari_env sets 'render_mode' correctly under the hood)
-    env.render_mode = "rgb_array"
     return env
 
 
@@ -105,7 +101,6 @@ def create_hidden_lives_atari_env(
         ),
         n_stack=4,
     )
-    env.render_mode = "rgb_array"
     return env
 
 

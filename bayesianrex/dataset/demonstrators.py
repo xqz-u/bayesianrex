@@ -10,7 +10,11 @@ import yaml
 from bayesianrex import config, constants, utils
 from bayesianrex.environments import create_atari_env, create_hidden_lives_atari_env
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecVideoRecorder
+from stable_baselines3.common.vec_env import (
+    SubprocVecEnv,
+    VecCheckNan,
+    VecVideoRecorder,
+)
 from wandb.integration.sb3 import WandbCallback
 
 logger = logging.getLogger(__name__)
@@ -38,10 +42,17 @@ def learn_demonstrator(args: Namespace):
         env_id,
         **conf["env_args"],
         vec_env_cls=SubprocVecEnv,
-        monitor_dir=ckpt_path / "monitor",
+        # NOTE writing Monitor stats to file + a VideoRecorder fails
+        # monitor_dir=ckpt_path / "monitor",
     )
+    # sometimes early into training there are numerical instability issues
+    env = VecCheckNan(env, raise_exception=True)
 
     # if args.video:
+    #     # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
+    #     # 'render_mode' after wrapping, which is required by VecVideoRecorder
+    #     # (make_atari_env sets 'render_mode' correctly under the hood)
+    #     env.render_mode = "rgb_array"
     #     # frequency & duration from
     #     # https://huggingface.co/ThomasSimonini/ppo-BreakoutNoFrameskip-v4#training-code
     #     video_len, video_freq = int(2e3), int(1e5)
@@ -55,7 +66,7 @@ def learn_demonstrator(args: Namespace):
     #     env = VecVideoRecorder(
     #         env,
     #         video_dir,
-    #         lambda x: x % video_freq == 0,
+    #         record_video_trigger=lambda x: x % video_freq == 0,
     #         video_length=video_len,
     #         name_prefix=f"PPO-{env_id}",
     #     )
@@ -82,7 +93,7 @@ def learn_demonstrator(args: Namespace):
         **conf["ppo_args"],
         seed=args.seed,
         tensorboard_log=args.assets_dir / "tensorflow_runs" / env_id / run.id,
-        # verbose=1,
+        # verbose=2,
     )
 
     agent.learn(
@@ -103,10 +114,15 @@ def learn_demonstrator(args: Namespace):
         ),
         progress_bar=True,
     )
-    run.finish()
 
 
 if __name__ == "__main__":
+    import numpy as np
+    import torch
+
+    torch.autograd.set_detect_anomaly(True)
+    np.seterr(all="raise")
+
     parser = {
         "env": {"type": str, "default": "breakout", "help": "environment name"},
         "seed": {"type": int, "default": None, "help": "RNG seed"},
@@ -136,10 +152,11 @@ if __name__ == "__main__":
     p = utils.define_cl_parser(parser)
     args = p.parse_args()
 
+    # args.video = True
+    # args.n_envs = 4
+    # args.seed = 3
+    # args.log_level = 1
+
     utils.setup_root_logging(args.log_level)
 
     learn_demonstrator(args)
-
-
-
-# from stable_baselines3.common.env_checker import check_env
