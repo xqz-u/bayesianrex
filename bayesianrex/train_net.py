@@ -5,9 +5,14 @@ import torch
 import torch.distributions as tdist
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from tqdm import tqdm
 
 import argparse
+from pathlib import Path
+
+from bayesianrex.dataset.generate_demonstrations import create_training_data, generate_demonstrations
+
 
 class Net(nn.Module):
     def __init__(self, ENCODING_DIMS, ACTION_DIMS):
@@ -269,12 +274,44 @@ def calc_accuracy(reward_network, training_inputs, training_outputs):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=None)
-    parser.add_argument('--env_name', default='', help='Select the environment name to run, i.e. pong')
-    parser.add_argument('--reward_model_path', default='', help="name and location for learned model params, e.g. ./learned_models/breakout.params")
+    parser.add_argument('--env_name', default='breakout', help='Select the environment name to run, i.e. pong')
+    parser.add_argument('--reward_model_path', default='./reward_model_checkpoints/', help="name and location for learned model params, e.g. ./learned_models/breakout.params")
     parser.add_argument('--seed', default=0, help="random seed for experiments")
     parser.add_argument('--models_dir', default = ".", help="path to directory that contains a models directory in which the checkpoint models for demos are stored")
     parser.add_argument('--encoding_dims', default = 64, type = int, help = "number of dimensions in the latent space")
     parser.add_argument('--loss_fn', default='trex+ss', help="ss: selfsupervised, trex: only trex, trex+ss: both trex and selfsupervised")
+    parser.add_argument('--training_data_available', default=False, help="If training data not availabel we generate it locally")
+
+    parser.add_argument('--data_seed', default=0, type=int, help="RNG seed")
+    parser.add_argument('--checkpoints_dir', type=Path,
+            help=
+                """path to a directory containing PPO checkpoints, e.g."""
+                """ 'data/demonstrations/BreakoutNoFrameskip-v4'""")
+    parser.add_argument('--env', type=str,
+            default="breakout",
+            help=(
+                """name of Atari game to generate demonstrations (should be"""
+                """ same as checkpoints training env)"""
+            ),)
+    parser.add_argument('--n_episodes', type=int,
+            default=1,
+            help="number of episodes to play (1 episode = 1 full trajectory)")
+    parser.add_argument('--n-traj', type=int,
+            default=0,
+            help="number of full training demonstrations") 
+    parser.add_argument('--n-snippets', type=int,
+            default=int(6e4),
+            help="number of short training demonstrations") 
+    parser.add_argument('--snippet-min-len', type=int,
+            default=50,
+            help="minimum length of short demonstrations") 
+    parser.add_argument('--snippet-max-len', type=int,
+            default=100,
+            help="max length of short demonstrations") 
+    parser.add_argument('--n-envs', type=int,
+            default=1,
+            help="number of envs to run in parallel to gather demonstrations") 
+
     args = parser.parse_args()
 
     lr, weight_decay = 1e-4, 1e-3
@@ -283,19 +320,47 @@ if __name__ == "__main__":
     l1_reg = 0.0
     num_iter = 2 if args.env_name == "enduro" and args.loss_fn == "trex+ss" else 1
 
-    folder = "../training_data"
-    obs = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
-    labels = np.load(f"{folder}/training_labels.npy", allow_pickle=True)
-    actions = np.load(f"{folder}/training_actions.npy", allow_pickle=True)
-    times = np.load(f"{folder}/training_times.npy", allow_pickle=True)
-    demonstrations = np.load(f"{folder}/demonstrations.npy", allow_pickle=True)
-    sorted_returns = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
+    if args.training_data_available:
+         
+        # load training data from checkpoints
+        folder = "../training_data"
+        obs = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
+        labels = np.load(f"{folder}/training_labels.npy", allow_pickle=True)
+        actions = np.load(f"{folder}/training_actions.npy", allow_pickle=True)
+        times = np.load(f"{folder}/training_times.npy", allow_pickle=True)
+        demonstrations = np.load(f"{folder}/demonstrations.npy", allow_pickle=True)
+        sorted_returns = np.load(f"{folder}/training_obs.npy", allow_pickle=True)
+    else:
+
+        # generate training data
+        # checkpoints = args.checkpoints_dir
+        checkpoints = [
+            Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_9950_steps.zip"),
+            Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_3100_steps.zip"),
+        ]
+        trajectories = generate_demonstrations(
+        checkpoints,
+        args.env,
+        args.n_episodes,
+        seed=args.data_seed,
+        n_envs=args.n_envs,
+        )
+        training_data = create_training_data(
+            trajectories,
+            args.n_traj,
+            args.n_snippets,
+            np.random.default_rng(args.data_seed),
+            (args.snippet_min_len, args.snippet_max_len),
+        )
+        obs, actions, times, labels = training_data
+        demonstrations = trajectories
+        sorted_returns = obs
+        print(f'Generated data')
 
     # Now we create a reward network and optimize it using the training data.
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     reward_net = Net(encoding_dims, ACTION_DIMS)
     reward_net.to(device)
-    import torch.optim as optim
 
     optimizer = optim.Adam(reward_net.parameters(), lr=lr, weight_decay=weight_decay)
     learn_reward(reward_net, optimizer, obs, labels, actions, times, num_iter, l1_reg, args.loss_fn,)
