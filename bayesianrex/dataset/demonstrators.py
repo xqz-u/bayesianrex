@@ -2,13 +2,11 @@ import logging
 import multiprocessing as mp
 from argparse import Namespace
 from pathlib import Path
-from pprint import pprint
+from pprint import pformat
 
-import stable_baselines3 as sb3
 import wandb
 import yaml
-from bayesianrex import config, constants, utils
-from bayesianrex.environments import create_atari_env, create_hidden_lives_atari_env
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
     SubprocVecEnv,
@@ -16,6 +14,9 @@ from stable_baselines3.common.vec_env import (
     VecVideoRecorder,
 )
 from wandb.integration.sb3 import WandbCallback
+
+from bayesianrex import config, constants, utils
+from bayesianrex.environments import create_atari_env, create_hidden_lives_atari_env
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,12 @@ def learn_demonstrator(args: Namespace):
     env = VecCheckNan(env, raise_exception=True)
 
     # if args.video:
+
     #     # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
     #     # 'render_mode' after wrapping, which is required by VecVideoRecorder
     #     # (make_atari_env sets 'render_mode' correctly under the hood)
     #     env.render_mode = "rgb_array"
+
     #     # frequency & duration from
     #     # https://huggingface.co/ThomasSimonini/ppo-BreakoutNoFrameskip-v4#training-code
     #     video_len, video_freq = int(2e3), int(1e5)
@@ -71,11 +74,10 @@ def learn_demonstrator(args: Namespace):
     #         name_prefix=f"PPO-{env_id}",
     #     )
 
-    print("Atari args:")
-    pprint(conf)
-    print("Command line args:")
-    pprint(vars(args))
+    logger.info("Atari args:\n%s", pformat(conf))
+    logger.info("Command line args:\n%s", pformat(vars(args)))
 
+    logger.debug("B4 wandb INIT")
     run = wandb.init(
         project="atari-demonstrators",
         dir=args.assets_dir,
@@ -86,9 +88,10 @@ def learn_demonstrator(args: Namespace):
         # save_code=True,  # optional
     )
 
+    logger.debug("b4 create PPO")
     # adjust for learning rate (or other hparams) scheduling
     utils.adjust_ppo_schedules(conf["ppo_args"])
-    agent = sb3.PPO(
+    agent = PPO(
         env=env,
         **conf["ppo_args"],
         seed=args.seed,
@@ -96,6 +99,7 @@ def learn_demonstrator(args: Namespace):
         # verbose=2,
     )
 
+    logger.debug("PPO learn!")
     agent.learn(
         **conf["ppo_learn_args"],
         callback=CallbackList(

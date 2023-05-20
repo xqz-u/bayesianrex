@@ -9,7 +9,7 @@ curl micro.mamba.pm/install.sh | bash
 
 micromamba_bin=$HOME/.local/bin/micromamba
 
-echo "Installing from env file $code_dir/env.yml..."
-$micromamba_bin create -f $code_dir/env.yml
+echo "Installing from env file $code_dir/env.gpu.yml..."
+$micromamba_bin create -f $code_dir/env.gpu.yml
 
 echo "DONE!"

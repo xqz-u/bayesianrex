@@ -7,6 +7,6 @@
 module load 2022
 module load Anaconda3/2022.05
 
-# with Conda the full prefix is needed sintce the env lives outside of
+# with Conda the full prefix is needed since the env lives outside of
 # default $HOME/.conda
 source activate $HOME/micromamba/envs/bayesianrex-dl2
