@@ -11,8 +11,7 @@ from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env import VecEnv, VecEnvWrapper, VecFrameStack
 from stable_baselines3.common.vec_env.base_vec_env import VecEnvObs
 
-import constants
-import networks
+from bayesianrex import constants, networks
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +53,29 @@ def mask_score(obs: np.ndarray, env_name: str) -> np.ndarray:
 
 
 def create_atari_env(
-    env_id: str, n_envs: int = 1, seed: int = None, wrapper_kwargs: dict = None
+    env_id: str,
+    n_envs: int = 1,
+    seed: int = None,
+    wrapper_kwargs: dict = None,
+    **kwargs
 ) -> VecFrameStack:
     logger.debug("Env: %s", env_id)
     # default atari wrapper kwargs found in B-REX
-    wrapper_kwargs = wrapper_kwargs or {
-        "clip_reward": False,
-        "terminal_on_life_loss": False,
-    }
-    return VecFrameStack(
-        make_atari_env(env_id, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs),
+    # wrapper_kwargs = wrapper_kwargs or {
+    #     "clip_reward": False,
+    #     "terminal_on_life_loss": False,
+    # }
+    env = VecFrameStack(
+        make_atari_env(
+            env_id, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs, **kwargs
+        ),
         n_stack=4,
     )
+    # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
+    # 'render_mode' after wrapping, which is required by VecVideoRecorder
+    # (make_atari_env sets 'render_mode' correctly under the hood)
+    env.render_mode = "rgb_array"
+    return env
 
 
 def create_hidden_lives_atari_env(
@@ -74,25 +84,29 @@ def create_hidden_lives_atari_env(
     seed: int = None,
     clip_reward: bool = False,
     terminal_on_life_loss: bool = False,
+    **kwargs
 ) -> VecFrameStack:
     env_id = constants.envs_id_mapper.get(env_name)
     logger.info("Env name %s Env id %s", env_name, env_id)
-    return VecFrameStack(
+    env = VecFrameStack(
         make_vec_env(
             env_id,
             n_envs=n_envs,
             seed=seed,
+            **kwargs,
             wrapper_class=lambda env, **_: TransformObservation(
                 AtariWrapper(
                     env,
-                    clip_reward=clip_reward,
-                    terminal_on_life_loss=terminal_on_life_loss,
+                    # clip_reward=clip_reward,
+                    # terminal_on_life_loss=terminal_on_life_loss,
                 ),
                 lambda obs: mask_score(obs, env_name),
             ),
         ),
         n_stack=4,
     )
+    env.render_mode = "rgb_array"
+    return env
 
 
 class VecMCMCMAPAtariReward(VecEnvWrapper):

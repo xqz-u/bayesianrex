@@ -1,0 +1,18 @@
+# origin:
+# https://github.com/DLR-RM/rl-baselines3-zoo/blob/master/hyperparams/ppo.yml
+ppo_args:
+  policy: 'CnnPolicy'
+  n_steps: 128
+  n_epochs: 4
+  batch_size: 256
+  learning_rate: lin_2.5e-4
+  clip_range: lin_0.1
+  vf_coef: 0.5
+  ent_coef: 0.01
+env_args:
+  # env_wrapper:
+  #   - stable_baselines3.common.atari_wrappers.AtariWrapper
+  # frame_stack: 4 NOTE we do this by default
+  # n_envs: 8 NOTE use passed argument instead, or available cores
+ppo_learn_args:
+  total_timesteps: !!float 1e7
