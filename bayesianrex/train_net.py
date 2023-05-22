@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
+from stable_baselines3.common.type_aliases import GymEnv
 from bayesianrex.dataset.generate_demonstrations import (
     create_training_data,
     generate_demonstrations,
@@ -336,7 +337,7 @@ if __name__ == "__main__":
         default="./reward_model_checkpoints/",
         help="name and location for learned model params, e.g. ./learned_models/breakout.params",
     )
-    parser.add_argument("--seed", default=0, help="random seed for experiments")
+    # parser.add_argument("--seed", default=0, help="random seed for experiments")
     parser.add_argument(
         "--encoding_dims",
         default=64,
@@ -401,6 +402,12 @@ if __name__ == "__main__":
         default=1,
         help="number of envs to run in parallel to gather demonstrations",
     )
+    parser.add_argument(
+        "--seed",
+        default=7,
+        type=int,
+        help="RNG seed",
+    )
 
     args = parser.parse_args()
 
@@ -424,13 +431,11 @@ if __name__ == "__main__":
         # checkpoints = args.checkpoints_dir
         from bayesianrex import config
 
+        ckpt_dir = args.checkpoints_dir
+
+        # TODO: Generalise this to accept any checkpoint
         checkpoints = [
-            # Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_9950_steps.zip"),
-            # Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_3100_steps.zip"),
-            Path(config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4/PPO_50_steps.zip"),
-            Path(
-                config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4/PPO_9950_steps.zip"
-            ),
+            Path("./agent_checkpoints/PPO_9950_steps"),
         ]
         trajectories = generate_demonstrations(
             checkpoints,
