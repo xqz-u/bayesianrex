@@ -6,6 +6,7 @@ import numpy as np
 import sys
 import copy
 from tqdm import tqdm
+from networks import RewardNet
 
 def write_weights_likelihood(last_layer, loglik, file_writer):
     if args.debug:
@@ -108,7 +109,7 @@ def predict_reward_sequence(net, traj):
     rewards_from_obs = []
     with torch.no_grad():
         for s in traj:
-            r = net.cum_return(torch.from_numpy(np.array(s)).float().to(device)).item()
+            r, _, _ = net.cum_return(torch.from_numpy(np.array(s)).float().to(device)).item()
             rewards_from_obs.append(r)
     return rewards_from_obs
 
@@ -290,7 +291,7 @@ if __name__ == '__main__':
     # Now we download a pretrained network to form \phi(s) the state features where the reward is now w^T \phi(s)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    reward_net = EmbeddingNet(args.encoding_dims)
+    reward_net = RewardNet(args.encoding_dims, ACTION_DIMS=4, training=False, device=device)
     reward_net.load_state_dict(torch.load(args.pretrained_network, map_location=device))
     #reinitialize last layer
     num_features = reward_net.fc2.in_features

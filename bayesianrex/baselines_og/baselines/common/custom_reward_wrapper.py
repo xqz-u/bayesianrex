@@ -210,7 +210,7 @@ class VecRLplusIRLAtariReward(VecEnvWrapper):
         #plt.show()
         #print(obs.shape)
         with torch.no_grad():
-            rews_network = self.reward_net.cum_return(torch.from_numpy(np.array(obs)).float().to(self.device)).cpu().numpy().transpose()[0]
+            rews_network, _, _ = self.reward_net.cum_return_mu(torch.from_numpy(np.array(obs)).float().to(self.device)).cpu().numpy().transpose()[0]
             #rews2= self.reward_net.cum_return(torch.from_numpy(np.array([rand_obs])).float().to(self.device)).cpu().numpy().transpose()[0]
         #self.rew_rms.update(rews_network)
         #r_hat = rews_network
