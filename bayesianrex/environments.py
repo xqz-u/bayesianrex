@@ -101,9 +101,9 @@ class VecMCMCMAPAtariReward(VecEnvWrapper):
         env_name: str,
     ):
         super().__init(venv)
-        self.reward_net = networks.EmbeddingNet(embedding_dim)
-        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location="cpu"))
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.reward_net = networks.RewardNet(embedding_dim, ACTION_DIMS=4, training=False, device=self.device)
+        self.reward_net.load_state_dict(torch.load(reward_net_path, map_location="cpu"))
         self.reward_net.to(self.device)
 
         self.rew_rms = RunningMeanStd(shape=())
@@ -132,7 +132,7 @@ class VecMCMCMAPAtariReward(VecEnvWrapper):
         # print(traj[0][0][40:60,:,:])
 
         with torch.no_grad():
-            learned_rewards = self.reward_net().float().to(self.device).numpy()
+            learned_rewards, _, _ = self.reward_net.cum_return(obs).float().to(self.device).numpy()
             # learned_rewards = (
             #     self.reward_net(torch.from_numpy(np.array(obs)).float().to(self.device))
             #     # .cpu()

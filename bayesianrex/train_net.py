@@ -9,126 +9,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
+from networks import RewardNet
 
+from stable_baselines3.common.type_aliases import GymEnv
 from bayesianrex.dataset.generate_demonstrations import (
     create_training_data,
     generate_demonstrations,
 )
-
-
-class Net(nn.Module):
-    def __init__(self, ENCODING_DIMS, ACTION_DIMS):
-        super().__init__()
-
-        intermediate_dimension = min(784, max(64, ENCODING_DIMS * 2))
-        act_fn = nn.LeakyReLU()
-        self.pre_reshape = nn.Sequential(
-            nn.Conv2d(4, 16, 7, stride=3),
-            act_fn,
-            nn.Conv2d(16, 32, 5, stride=2),
-            act_fn,
-            nn.Conv2d(32, 32, 3, stride=1),
-            act_fn,
-            nn.Conv2d(32, 16, 3, stride=1),
-            act_fn,
-        )
-        self.post_reshape = nn.Sequential(
-            nn.Linear(784, intermediate_dimension), act_fn
-        )
-        self.decoder_pre_reshape = nn.Sequential(
-            nn.Linear(ENCODING_DIMS, intermediate_dimension),
-            act_fn,
-            nn.Linear(intermediate_dimension, 1568),
-            act_fn,
-        )
-        self.decoder_post_reshape = nn.Sequential(
-            nn.ConvTranspose2d(2, 4, 3, stride=1),
-            act_fn,
-            nn.ConvTranspose2d(4, 16, 6, stride=1),
-            act_fn,
-            nn.ConvTranspose2d(16, 16, 7, stride=2),
-            act_fn,
-            nn.ConvTranspose2d(16, 4, 10, stride=1),
-            nn.Sigmoid(),
-        )
-        self.fc_mu = nn.Linear(intermediate_dimension, ENCODING_DIMS)
-        self.fc_var = nn.Linear(intermediate_dimension, ENCODING_DIMS)
-        self.fc1 = nn.Linear(ENCODING_DIMS, 1)
-
-        self.temporal_difference1 = nn.Linear(ENCODING_DIMS * 2, 1, bias=False)
-        self.inverse_dynamics1 = nn.Linear(ENCODING_DIMS * 2, ACTION_DIMS, bias=False)
-        self.forward_dynamics1 = nn.Linear(
-            ENCODING_DIMS + ACTION_DIMS, ENCODING_DIMS, bias=False
-        )
-
-        self.normal = tdist.Normal(0, 1)
-        self.sigmoid = nn.Sigmoid()
-        self.ACTION_DIMS = ACTION_DIMS
-        print("Intermediate dimension calculated to be: " + str(intermediate_dimension))
-
-    def reparameterize(self, mu, var):  # var is actually the log variance
-        if self.training:
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            std = var.mul(0.5).exp()
-            eps = self.normal.sample(mu.shape).to(device)
-            return eps.mul(std).add(mu)
-        else:
-            return mu
-
-    def cum_return(self, traj):
-        # print("input shape of trajectory:")
-        # print(traj.shape)
-        """calculate cumulative return of trajectory"""
-        sum_rewards, sum_abs_rewards = 0, 0
-        sum_abs_rewards = 0
-        x = traj.permute(0, 3, 1, 2)  # get into NCHW format
-
-        # compute forward pass of reward network (we parallelize across frames so batch size is length of partial trajectory)
-        x = self.pre_reshape(x).reshape((x.shape[0], 784))
-        x = self.post_reshape(x)
-
-        mu, var = self.fc_mu(x), self.fc_var(x)
-        z = self.reparameterize(mu, var)
-
-        r = self.fc1(z)
-        sum_rewards += torch.sum(r)
-        sum_abs_rewards += torch.sum(torch.abs(r))
-        return sum_rewards, sum_abs_rewards, mu, var, z
-
-    def estimate_temporal_difference(self, z1, z2):
-        x = self.temporal_difference1(torch.cat((z1, z2), 1))
-        return x
-
-    def forward_dynamics(self, z1, actions):
-        x = torch.cat((z1, actions), dim=1)
-        x = self.forward_dynamics1(x)
-        return x
-
-    def estimate_inverse_dynamics(self, z1, z2):
-        concatenation = torch.cat((z1, z2), 1)
-        x = self.inverse_dynamics1(concatenation)
-        return x
-
-    def decode(self, encoding):
-        x = self.decoder_pre_reshape(encoding)
-        x = x.view(-1, 2, 28, 28)
-        x = self.decoder_post_reshape(x)
-        return x.permute(0, 2, 3, 1)
-
-    def forward(self, traj_i, traj_j):
-        """compute cumulative return for each trajectory and return logits"""
-        cum_r_i, abs_r_i, mu1, var1, z1 = self.cum_return(traj_i)
-        cum_r_j, abs_r_j, mu2, var2, z2 = self.cum_return(traj_j)
-        return (
-            torch.cat((cum_r_i.unsqueeze(0), cum_r_j.unsqueeze(0)), 0),
-            abs_r_i + abs_r_j,
-            z1,
-            z2,
-            mu1,
-            mu2,
-            var1,
-            var2,
-        )
 
 
 def reconstruction_loss(decoded, target, mu, logvar):
@@ -336,7 +223,7 @@ if __name__ == "__main__":
         default="./reward_model_checkpoints/",
         help="name and location for learned model params, e.g. ./learned_models/breakout.params",
     )
-    parser.add_argument("--seed", default=0, help="random seed for experiments")
+    # parser.add_argument("--seed", default=0, help="random seed for experiments")
     parser.add_argument(
         "--encoding_dims",
         default=64,
@@ -401,6 +288,12 @@ if __name__ == "__main__":
         default=1,
         help="number of envs to run in parallel to gather demonstrations",
     )
+    parser.add_argument(
+        "--seed",
+        default=7,
+        type=int,
+        help="RNG seed",
+    )
 
     args = parser.parse_args()
 
@@ -424,13 +317,11 @@ if __name__ == "__main__":
         # checkpoints = args.checkpoints_dir
         from bayesianrex import config
 
+        ckpt_dir = args.checkpoints_dir
+
+        # TODO: Generalise this to accept any checkpoint
         checkpoints = [
-            # Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_9950_steps.zip"),
-            # Path("agent_checkpoints/BreakoutNoFrameskip-v4/PPO_3100_steps.zip"),
-            Path(config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4/PPO_50_steps.zip"),
-            Path(
-                config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4/PPO_9950_steps.zip"
-            ),
+            Path("./agent_checkpoints/PPO_9950_steps"),
         ]
         trajectories = generate_demonstrations(
             checkpoints,
@@ -453,7 +344,7 @@ if __name__ == "__main__":
 
     # Now we create a reward network and optimize it using the training data.
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    reward_net = Net(encoding_dims, ACTION_DIMS)
+    reward_net = RewardNet(encoding_dims, ACTION_DIMS, training=True, device=device)
     reward_net.to(device)
 
     optimizer = optim.Adam(reward_net.parameters(), lr=lr, weight_decay=weight_decay)
