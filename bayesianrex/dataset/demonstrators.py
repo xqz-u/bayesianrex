@@ -80,6 +80,7 @@ def learn_demonstrator(args: Namespace):
     logger.debug("B4 wandb INIT")
     run = wandb.init(
         project="atari-demonstrators",
+        entity='bayesianrex-dl2',
         dir=args.assets_dir,
         name=args.run_name,
         config={**conf, **{"cl_args": vars(args)}},
@@ -96,7 +97,7 @@ def learn_demonstrator(args: Namespace):
         **conf["ppo_args"],
         seed=args.seed,
         tensorboard_log=args.assets_dir / "tensorflow_runs" / env_id / run.id,
-        # verbose=2,
+        verbose=2,
     )
 
     logger.debug("PPO learn!")

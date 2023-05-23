@@ -11,11 +11,8 @@ data/*
 logs/*
 tests/assets/*
 .vscode
-
-
-
-
-
+wandb/*
+assets/*
 
 
 # Byte-compiled / optimized / DLL files
