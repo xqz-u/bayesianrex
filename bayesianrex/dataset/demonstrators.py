@@ -16,7 +16,7 @@ from stable_baselines3.common.vec_env import (
 from wandb.integration.sb3 import WandbCallback
 
 from bayesianrex import config, constants, utils
-from bayesianrex.environments import create_atari_env, create_hidden_lives_atari_env
+from bayesianrex.environments import create_atari_env
 
 logger = logging.getLogger(__name__)
 
@@ -33,52 +33,42 @@ def learn_demonstrator(args: Namespace):
     env_id = constants.envs_id_mapper.get(args.env)
     ckpt_path = args.assets_dir / "demonstrators" / env_id
     # run the environments in parallel, the overhead should be worth it with Atari
-    # env = create_hidden_lives_atari_env(
-    #     args.env,
-    #     **conf["env_args"],
-    #     vec_env_cls=SubprocVecEnv,
-    #     monitor_dir=ckpt_path / "monitor",
-    # )
     env = create_atari_env(
         env_id,
         **conf["env_args"],
         vec_env_cls=SubprocVecEnv,
-        # NOTE writing Monitor stats to file + a VideoRecorder fails
-        # monitor_dir=ckpt_path / "monitor",
     )
     # sometimes early into training there are numerical instability issues
     env = VecCheckNan(env, raise_exception=True)
 
-    # if args.video:
-
-    #     # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
-    #     # 'render_mode' after wrapping, which is required by VecVideoRecorder
-    #     # (make_atari_env sets 'render_mode' correctly under the hood)
-    #     env.render_mode = "rgb_array"
-
-    #     # frequency & duration from
-    #     # https://huggingface.co/ThomasSimonini/ppo-BreakoutNoFrameskip-v4#training-code
-    #     video_len, video_freq = int(2e3), int(1e5)
-    #     video_dir = args.assets_dir / "videos"
-    #     logger.info(
-    #         "Saving videos of %d train steps every %d steps at %s",
-    #         video_len,
-    #         video_freq,
-    #         video_dir,
-    #     )
-    #     env = VecVideoRecorder(
-    #         env,
-    #         video_dir,
-    #         record_video_trigger=lambda x: x % video_freq == 0,
-    #         video_length=video_len,
-    #         name_prefix=f"PPO-{env_id}",
-    #     )
+    if args.video:
+        # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
+        # 'render_mode' after wrapping, which is required by VecVideoRecorder
+        # (make_atari_env sets 'render_mode' correctly under the hood)
+        env.render_mode = "rgb_array"
+        # frequency & duration from
+        # https://huggingface.co/ThomasSimonini/ppo-BreakoutNoFrameskip-v4#training-code
+        video_len, video_freq = int(2e3), int(1e5)
+        video_dir = args.assets_dir / "videos"
+        logger.info(
+            "Saving videos of %d train steps every %d steps at %s",
+            video_len,
+            video_freq,
+            video_dir,
+        )
+        env = VecVideoRecorder(
+            env,
+            video_dir,
+            record_video_trigger=lambda x: x % video_freq == 0,
+            video_length=video_len,
+            name_prefix=f"PPO-{env_id}",
+        )
 
     logger.info("Atari args:\n%s", pformat(conf))
     logger.info("Command line args:\n%s", pformat(vars(args)))
 
-    logger.debug("B4 wandb INIT")
     run = wandb.init(
+        entity="bayesianrex-dl2",
         project="atari-demonstrators",
         dir=args.assets_dir,
         name=args.run_name,
@@ -88,7 +78,6 @@ def learn_demonstrator(args: Namespace):
         # save_code=True,  # optional
     )
 
-    logger.debug("b4 create PPO")
     # adjust for learning rate (or other hparams) scheduling
     utils.adjust_ppo_schedules(conf["ppo_args"])
     agent = PPO(
@@ -99,7 +88,6 @@ def learn_demonstrator(args: Namespace):
         # verbose=2,
     )
 
-    logger.debug("PPO learn!")
     agent.learn(
         **conf["ppo_learn_args"],
         callback=CallbackList(
@@ -144,22 +132,17 @@ if __name__ == "__main__":
         "assets-dir": {
             "type": Path,
             "default": Path("./assets").resolve(),
-            "help": "Container folder to store artifacts (checkpoints, videos etc.)",
+            "help": "container folder to store artifacts (checkpoints, videos etc.)",
         },
         "video": {
             "default": False,
             "action": "store_true",
-            "help": "Record videos of the agent while training",
+            "help": "record videos of the agent while training",
         },
     }
 
     p = utils.define_cl_parser(parser)
     args = p.parse_args()
-
-    # args.video = True
-    # args.n_envs = 4
-    # args.seed = 3
-    # args.log_level = 1
 
     utils.setup_root_logging(args.log_level)
 

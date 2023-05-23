@@ -2,6 +2,12 @@ import logging
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from typing import Callable, Union
 
+import torch
+
+
+def torch_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def define_cl_parser(args_dict: dict) -> ArgumentParser:
     p = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)

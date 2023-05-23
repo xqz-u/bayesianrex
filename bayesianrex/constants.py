@@ -10,3 +10,6 @@ envs_id_mapper = {
     "beamrider": "BeamRiderNoFrameskip-v4",
     "seaquest": "SeaquestNoFrameskip-v4",
 }
+
+reward_net_latent_space = 64
+reward_net_hparams = {"lr": 1e-4, "weight_decay": 1e-3}

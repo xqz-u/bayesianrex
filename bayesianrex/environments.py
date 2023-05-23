@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -55,53 +55,41 @@ def mask_score(obs: np.ndarray, env_name: str) -> np.ndarray:
 def create_atari_env(
     env_id: str,
     n_envs: int = 1,
-    seed: int = None,
-    wrapper_kwargs: dict = None,
+    seed: Optional[int] = None,
+    wrapper_kwargs: Optional[dict] = None,
     **kwargs
 ) -> VecFrameStack:
     logger.debug("Env: %s", env_id)
-    # default atari wrapper kwargs found in B-REX
-    # wrapper_kwargs = wrapper_kwargs or {
-    #     "clip_reward": False,
-    #     "terminal_on_life_loss": False,
-    # }
-    env = VecFrameStack(
+    return VecFrameStack(
         make_atari_env(
             env_id, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs, **kwargs
         ),
         n_stack=4,
     )
-    return env
 
 
 def create_hidden_lives_atari_env(
     env_name: str,
     n_envs: int = 1,
-    seed: int = None,
-    clip_reward: bool = False,
-    terminal_on_life_loss: bool = False,
+    seed: Optional[int] = None,
+    atari_kwargs: Optional[dict] = None,
     **kwargs
 ) -> VecFrameStack:
     env_id = constants.envs_id_mapper.get(env_name)
     logger.info("Env name %s Env id %s", env_name, env_id)
-    env = VecFrameStack(
+    return VecFrameStack(
         make_vec_env(
             env_id,
             n_envs=n_envs,
             seed=seed,
             **kwargs,
             wrapper_class=lambda env, **_: TransformObservation(
-                AtariWrapper(
-                    env,
-                    # clip_reward=clip_reward,
-                    # terminal_on_life_loss=terminal_on_life_loss,
-                ),
+                AtariWrapper(env, **(atari_kwargs or {})),
                 lambda obs: mask_score(obs, env_name),
             ),
         ),
         n_stack=4,
     )
-    return env
 
 
 class VecMCMCMAPAtariReward(VecEnvWrapper):
