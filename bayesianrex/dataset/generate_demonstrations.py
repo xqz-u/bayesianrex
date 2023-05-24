@@ -1,6 +1,6 @@
-# TODO documentation
-# TODO wandb demonstrations log
+# TODO log trajectories returns on wandb
 import logging
+import time
 from argparse import Namespace
 from pathlib import Path
 from pprint import pformat
@@ -73,10 +73,9 @@ parser_conf = {
     },
     "train-data-save-dir": {
         "type": Path,
-        "default": None,
         "help": (
             """folder to save trajectories and training data"""
-            """ *NOTE* saving training data might require a lot of time and disk space"""
+            """\n*NOTE* saving training data might require a lot of time and disk space"""
         ),
     },
 }
@@ -112,7 +111,9 @@ def generate_trajectory_from_ckpt(
         obs, done = env.reset(), False
         ep_states, ep_actions, ep_rewards = [], [], []
         while not done:
-            ep_states.append(obs)
+            # NOTE pixel observations from Atari games are uint8, transform to
+            # float for CNN processing
+            ep_states.append((obs / 255.0).astype(np.float32))
             action, *_ = agent.predict(obs)
             obs, reward, done, *_ = env.step(action)
             ep_actions.append(action)
@@ -180,6 +181,7 @@ def training_trajectories(
     states, actions, _ = trajectories
     train_states, train_actions, train_times, labels = [], [], [], []
     # add full trajs (for use on Enduro)
+    start = time.time()
     for n in range(n_traj):
         # pick 2 different random trajectories
         i, j = rng.choice(len(states), size=2, replace=False)
@@ -192,7 +194,8 @@ def training_trajectories(
             (np.arange(si, len(states[i]), step), np.arange(sj, len(states[j]), step))
         )
         labels.append(np.array(i < j, dtype=int))
-    logger.info("Generated %d full trajectories", n + 1)
+    end = time.time()
+    logger.info("Generated %d full trajectories in %.2fs", n_traj, end - start)
     return train_states, train_actions, train_times, labels
 
 
@@ -202,6 +205,7 @@ def training_trajectories(
 # this is reversed in LearnAtariRewardLinear.create_training_data (they also
 # sort trajectories increasingly)
 # NOTE assumes trajectories are sorted in *increasing* order of return
+# FIXME generating 60K snippets takes long, could multiprocessing.map?
 def training_snippets(
     trajectories: RawTrajectories,
     n_snippets: int,
@@ -218,6 +222,7 @@ def training_snippets(
     # FIXED SIZE SNIPPETS WITH PROGRESS PRIOR
     # only sample from trajectories long enough
     states = list(filter(lambda s: len(s) >= snippet_min_len, states))
+    start = time.time()
     for n in range(n_snippets):
         # pick 2 different random trajectories
         i, j = rng.choice(len(states), size=2, replace=False)
@@ -258,7 +263,8 @@ def training_snippets(
             len(states[worst]),
             len(train_states[-1][1]),
         )
-    logger.info("Generated %d snippet trajectories", n + 1)
+    end = time.time()
+    logger.info("Generated %d snippet trajectories in %.2fs", n_snippets, end - start)
     return train_states, train_actions, train_times, labels
 
 

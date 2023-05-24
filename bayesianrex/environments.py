@@ -5,8 +5,8 @@ from typing import Optional, Union
 import numpy as np
 import torch
 from gymnasium.wrappers import TransformObservation
+from stable_baselines3.common import env_util
 from stable_baselines3.common.atari_wrappers import AtariWrapper
-from stable_baselines3.common.env_util import make_atari_env, make_vec_env
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env import VecEnv, VecEnvWrapper, VecFrameStack
 from stable_baselines3.common.vec_env.base_vec_env import VecEnvObs
@@ -61,7 +61,7 @@ def create_atari_env(
 ) -> VecFrameStack:
     logger.debug("Env: %s", env_id)
     return VecFrameStack(
-        make_atari_env(
+        env_util.make_atari_env(
             env_id, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs, **kwargs
         ),
         n_stack=4,
@@ -78,7 +78,7 @@ def create_hidden_lives_atari_env(
     env_id = constants.envs_id_mapper.get(env_name)
     logger.info("Env name %s Env id %s", env_name, env_id)
     return VecFrameStack(
-        make_vec_env(
+        env_util.make_vec_env(
             env_id,
             n_envs=n_envs,
             seed=seed,
@@ -102,7 +102,9 @@ class VecMCMCMAPAtariReward(VecEnvWrapper):
     ):
         super().__init(venv)
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.reward_net = networks.RewardNet(embedding_dim, ACTION_DIMS=4, training=False, device=self.device)
+        self.reward_net = networks.RewardNet(
+            embedding_dim, ACTION_DIMS=4, training=False, device=self.device
+        )
         self.reward_net.load_state_dict(torch.load(reward_net_path, map_location="cpu"))
         self.reward_net.to(self.device)
 
@@ -132,7 +134,9 @@ class VecMCMCMAPAtariReward(VecEnvWrapper):
         # print(traj[0][0][40:60,:,:])
 
         with torch.no_grad():
-            learned_rewards, _, _ = self.reward_net.cum_return(obs).float().to(self.device).numpy()
+            learned_rewards, _, _ = (
+                self.reward_net.cum_return(obs).float().to(self.device).numpy()
+            )
             # learned_rewards = (
             #     self.reward_net(torch.from_numpy(np.array(obs)).float().to(self.device))
             #     # .cpu()

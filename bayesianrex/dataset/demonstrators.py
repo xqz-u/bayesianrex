@@ -6,6 +6,8 @@ from pprint import pformat
 
 import wandb
 import yaml
+from bayesianrex import config, constants, utils
+from bayesianrex.environments import create_atari_env
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
@@ -14,9 +16,6 @@ from stable_baselines3.common.vec_env import (
     VecVideoRecorder,
 )
 from wandb.integration.sb3 import WandbCallback
-
-from bayesianrex import config, constants, utils
-from bayesianrex.environments import create_atari_env
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +67,10 @@ def learn_demonstrator(args: Namespace):
     logger.info("Command line args:\n%s", pformat(vars(args)))
 
     run = wandb.init(
-        entity="bayesianrex-dl2",
-        project="atari-demonstrators",
-        entity='bayesianrex-dl2',
+        entity=args.wandb_entity,
+        project=args.wandb_project or "atari-demonstrators",
         dir=args.assets_dir,
-        name=args.run_name,
+        name=args.wandb_run_name,
         config={**conf, **{"cl_args": vars(args)}},
         sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
         monitor_gym=True,  # auto-upload the videos of agents playing the game
@@ -88,7 +86,6 @@ def learn_demonstrator(args: Namespace):
         tensorboard_log=args.assets_dir / "tensorflow_runs" / env_id / run.id,
         verbose=2,
     )
-
     agent.learn(
         **conf["ppo_learn_args"],
         callback=CallbackList(
@@ -100,6 +97,7 @@ def learn_demonstrator(args: Namespace):
                 ),
                 WandbCallback(
                     gradient_save_freq=int(1e4),
+                    # path to final trained agent
                     model_save_path=ckpt_path / f"PPO_{env_id}_trained_demonstrator",
                     verbose=2,
                 ),
@@ -118,28 +116,19 @@ if __name__ == "__main__":
 
     parser = {
         "env": {"type": str, "default": "breakout", "help": "environment name"},
-        "seed": {"type": int, "default": None, "help": "RNG seed"},
-        "run-name": {"type": str, "default": None, "help": "wandb run name"},
-        "n-envs": {
-            "type": int,
-            "default": None,
-            "help": "number of environments to run in parallel",
-        },
+        "seed": {"type": int, "help": "RNG seed"},
+        "n-envs": {"type": int, "help": "number of environments to run in parallel"},
         "save-freq": {
             "type": int,
             "default": int(4e5),
-            "help": "checkpointing frequency in steps (~25 total checkpoints)",
-        },
-        "assets-dir": {
-            "type": Path,
-            "default": Path("./assets").resolve(),
-            "help": "container folder to store artifacts (checkpoints, videos etc.)",
+            "help": "checkpointing frequency in steps (defaults to ~25 checkpoints)",
         },
         "video": {
             "default": False,
             "action": "store_true",
             "help": "record videos of the agent while training",
         },
+        **constants.wandb_cl_parser,
     }
 
     p = utils.define_cl_parser(parser)
