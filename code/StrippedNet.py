@@ -20,27 +20,25 @@ class EmbeddingNet(nn.Module):
         super().__init__()
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        intermediate_dimension = min(784, max(64, ENCODING_DIMS * 2))
         self.ENCODING_DIMS = ENCODING_DIMS
-        self.conv1 = nn.Conv2d(4, 16, 7, stride=3)
-        self.conv2 = nn.Conv2d(16, 32, 5, stride=2)
-        self.conv3 = nn.Conv2d(32, 32, 3, stride=1)
-        self.conv4 = nn.Conv2d(32, 16, 3, stride=1)
-
-        # This is the width of the layer between the convolved framestack
-        # and the actual latent space. Scales with self.ENCODING_DIMS
-        intermediate_dimension = min(784, max(64, self.ENCODING_DIMS*2))
-
-        # Brings the convolved frame down to intermediate dimension just
-        # before being sent to latent space
-        self.fc1 = nn.Linear(784, intermediate_dimension)
-
+        act_fn = nn.LeakyReLU()
+        self.pre_reshape = nn.Sequential(
+            nn.Conv2d(4, 16, 7, stride=3), act_fn,
+            nn.Conv2d(16, 32, 5, stride=2), act_fn,
+            nn.Conv2d(32, 32, 3, stride=1), act_fn,
+            nn.Conv2d(32, 16, 3, stride=1), act_fn
+        )
+        self.post_reshape = nn.Sequential(
+            nn.Linear(784, intermediate_dimension), act_fn
+        )
         # This brings from intermediate dimension to latent space. Named mu
         # because in the full network it includes a var also, to sample for
         # the autoencoder
         self.fc_mu = nn.Linear(intermediate_dimension, self.ENCODING_DIMS)
 
         # This is the actual T-REX layer; linear comb. from self.ENCODING_DIMS
-        self.fc2 = nn.Linear(self.ENCODING_DIMS, 1)
+        self.fc1 = nn.Linear(self.ENCODING_DIMS, 1)
 
     def cum_return(self, traj):
         '''calculate cumulative return of trajectory'''
@@ -48,15 +46,12 @@ class EmbeddingNet(nn.Module):
         sum_abs_rewards = 0
         x = traj.permute(0,3,1,2) #get into NCHW format
         #compute forward pass of reward network (we parallelize across frames so batch size is length of partial trajectory)
-        x = F.leaky_relu(self.conv1(x))
-        x = F.leaky_relu(self.conv2(x))
-        x = F.leaky_relu(self.conv3(x))
-        x = F.leaky_relu(self.conv4(x))
+        x = self.pre_reshape(x)
         x = x.reshape(x.shape[0], 784)
-        x = F.leaky_relu(self.fc1(x))
+        x = self.post_reshape(x)
         mu = self.fc_mu(x)
 
-        r = self.fc2(mu)
+        r = self.fc1(mu)
         sum_rewards += torch.sum(r)
         sum_abs_rewards += torch.sum(torch.abs(r))
         return sum_rewards#, sum_abs_rewards, mu
@@ -75,12 +70,9 @@ class EmbeddingNet(nn.Module):
             for x in traj:
                 x = x.permute(0,3,1,2) #get into NCHW format
                 #compute forward pass of reward network
-                x = F.leaky_relu(self.conv1(x))
-                x = F.leaky_relu(self.conv2(x))
-                x = F.leaky_relu(self.conv3(x))
-                x = F.leaky_relu(self.conv4(x))
+                x = self.pre_reshape(x)
                 x = x.reshape(x.shape[0], 784)
-                x = F.leaky_relu(self.fc1(x))
+                x = self.post_reshape(x)
                 mu = self.fc_mu(x)
                 accum.add_(mu)
                 #print(accum)
@@ -90,12 +82,9 @@ class EmbeddingNet(nn.Module):
         with torch.no_grad():
             x = obs.permute(0,3,1,2) #get into NCHW format
             #compute forward pass of reward network
-            x = F.leaky_relu(self.conv1(x))
-            x = F.leaky_relu(self.conv2(x))
-            x = F.leaky_relu(self.conv3(x))
-            x = F.leaky_relu(self.conv4(x))
+            x = self.pre_reshape(x)
             x = x.reshape(x.shape[0], 784)
-            x = F.leaky_relu(self.fc1(x))
+            x = self.post_reshape(x)
             mu = self.fc_mu(x)
 
         return mu
