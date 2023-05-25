@@ -17,7 +17,10 @@ def trex_loss(returns: T, preferences: T) -> T:
 def forward_dynamics_loss(
     reward_net: RewardNetwork, mu: T, actions: T, fwd_dynamics_distance: int = 5
 ) -> T:
-    num_states, actions_onehot = len(actions), F.one_hot(actions)
+    num_states = len(actions)
+    actions_onehot = torch.zeros((num_states, reward_net.action_dims)).to(reward_net.device)
+    actions_onehot[torch.arange(actions_onehot.size(0)), actions] = 1
+    
     # dropping last state/action
     next_state_encoding = reward_net.forward_dynamics(
         mu[:-fwd_dynamics_distance], actions_onehot[:-fwd_dynamics_distance]

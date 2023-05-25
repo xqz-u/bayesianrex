@@ -43,7 +43,7 @@ def learn_reward_fn(
             returns_, abs_returns_sum, *info = reward_net(*states)
             loss = 0.0
             if "trex" in loss_name:
-                loss += losses.trex_loss(returns_, datapoint[3])
+                loss += losses.trex_loss(returns_, datapoint[3].long().to(device))
             if "ss" in loss_name:
                 loss += losses.self_supervised_losses(
                     reward_net, states, actions, times, info
@@ -163,10 +163,10 @@ if __name__ == "__main__":
     p = utils.define_cl_parser(parser_conf)
     args = p.parse_args()
 
-    args.seed = 0
-    # args.log_level = 1
-    # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
-    args.checkpoints_dir = config.DEMONSTRATIONS_DIR.parent / "demonstrators_tiny"
+    # args.seed = 0
+    # # args.log_level = 1
+    # # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
+    # args.checkpoints_dir = config.DEMONSTRATIONS_DIR.parent / "demonstrators_tiny"
     # args.n_traj = 1000
     # args.n_snippets = 2000
     args.wandb_entity = "bayesianrex-dl2"

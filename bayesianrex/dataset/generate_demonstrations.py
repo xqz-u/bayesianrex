@@ -280,7 +280,7 @@ def create_training_data(
     return [d + s for s, d in zip(snippets, full_demos)]
 
 
-def main(args: Namespace) -> [TrainTrajectories, RawTrajectories]:
+def main(args: Namespace) -> Tuple[TrainTrajectories, RawTrajectories]:
     if args.env == "enduro":
         # NOTE we don't vary the loss function for now, always trex+ss
         assert (
