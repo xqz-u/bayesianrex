@@ -11,6 +11,10 @@ training_data/*
 __pycache__/
 *.py[cod]
 *$py.class
+assets/*
+*.out
+*.params
+*.job
 
 # C extensions
 *.so
