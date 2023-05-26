@@ -6,6 +6,7 @@ from pprint import pformat
 
 import wandb
 import yaml
+import bayesianrex.environments as environments
 from bayesianrex import config, constants, utils
 from bayesianrex.environments import create_atari_env
 from bayesianrex.networks import RewardNetwork
@@ -34,14 +35,20 @@ def learn_demonstrator(args: Namespace):
     env_id = constants.envs_id_mapper.get(args.env)
     ckpt_path = args.assets_dir / "demonstrators" / env_id
     # run the environments in parallel, the overhead should be worth it with Atari
-    # TODO: add option to add custom reward function wrapper
     env = create_atari_env(
         env_id,
         **conf["env_args"],
         vec_env_cls=SubprocVecEnv,
     )
-    if Custom_Reward:
-        reward_net = 
+    # TODO: test Custom Reward wrapper
+    if args.Custom_Reward:
+        device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        n_actions = environments.create_atari_env(
+            constants.envs_id_mapper.get(args.env)
+        ).action_space.n
+        reward_net = RewardNetwork(args.encoding_dims, n_actions, device).to(device)
+        checkpoint = torch.load(args.reward_net_location)
+        reward_net.load_state_dict(checkpoint)
         env = CustomRewardWrapper(env, reward_net)
     # sometimes early into training there are numerical instability issues
     env = VecCheckNan(env, raise_exception=True)
@@ -134,6 +141,9 @@ if __name__ == "__main__":
             "action": "store_true",
             "help": "record videos of the agent while training",
         },
+        "Custom_Reward" : {"type": bool, "default": False, "help": "whether to use learned reward function"},
+        "reward_net_location" : {"type": str, "default": "", "help": "location of trained reward net checkpoint"},
+        "encoding_dims" : {"type": int, "default": constants.reward_net_latent_space, "help": "encoding_dim of the model"},
         **constants.wandb_cl_parser,
     }
 
