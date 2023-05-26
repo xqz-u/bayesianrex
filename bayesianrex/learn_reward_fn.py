@@ -1,12 +1,9 @@
-# TODO original codebase has a `predict_trajectory_return` evaluation step at
-# the end
 import logging
 import time
 from argparse import Namespace
 from pathlib import Path
 from pprint import pformat
 
-import joblib
 import torch
 import wandb
 from torch.optim import Adam
@@ -76,13 +73,14 @@ def main(args: Namespace):
     logger.info("Using device: %s", device)
 
     # load offline training data if they exist, otherwise generate new ones
-    if args.train_data_dir is None:
-        logger.info("Generate %d training datapoints", args.n_traj + args.n_snippets)
-        train_data, _ = gen_demos.main(args)
+    train_idxs_path, trj_path = args.train_data_path, args.trajectories_path
+    can_load = not (train_idxs_path is None or trj_path is None)
+    if can_load:
+        train_data, _ = gen_demos.load_train_data(trj_path, train_idxs_path)
     else:
-        logger.info("Loading training data from %s", args.train_data_dir)
-        train_data = list(joblib.load(args.train_data_dir).values())
+        train_data, _ = gen_demos.main(args)
     train_loader = make_demonstrations_loader(train_data)
+    exit(0)
 
     n_actions = environments.create_atari_env(
         constants.envs_id_mapper.get(args.env)
@@ -143,9 +141,9 @@ if __name__ == "__main__":
             "default": "trex+ss",
             "help": "loss type, ss: Self-Supervised, trex: T-Rex, trex+ss: T-Rex and Self-Supervised",
         },
-        "train-data-dir": {
+        "train-data-path": {
             "type": Path,
-            "help": "(optional) path to folder with demonstrations",
+            "help": "path to demonstrations pairs (training preferences)",
         },
         "reward-model-save-path": {
             "type": Path,
@@ -169,8 +167,18 @@ if __name__ == "__main__":
     # args.checkpoints_dir = config.DEMONSTRATIONS_DIR.parent / "demonstrators_tiny"
     # args.n_traj = 1000
     # args.n_snippets = 2000
-    args.wandb_entity = "bayesianrex-dl2"
-    args.wandb_project = "reward-model"
+    # args.wandb_entity = "bayesianrex-dl2"
+    # args.wandb_project = "reward-model"
+    args.trajectories_path = Path(
+        "assets/train_data/BreakoutNoFrameskip-v4/trajectories"
+    )
+    args.train_data_path = Path(
+        "assets/train_data/BreakoutNoFrameskip-v4/train_pairs.npz"
+    )
 
     utils.setup_root_logging(args.log_level)
     main(args)
+
+
+# TODO original codebase has a `predict_trajectory_return` evaluation step at
+# the end
