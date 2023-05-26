@@ -9,6 +9,7 @@ import yaml
 from bayesianrex import config, constants, utils
 from bayesianrex.environments import create_atari_env
 from bayesianrex.networks import RewardNetwork
+from bayesianrex.wrapper import CustomRewardWrapper
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
@@ -39,6 +40,9 @@ def learn_demonstrator(args: Namespace):
         **conf["env_args"],
         vec_env_cls=SubprocVecEnv,
     )
+    if Custom_Reward:
+        reward_net = 
+        env = CustomRewardWrapper(env, reward_net)
     # sometimes early into training there are numerical instability issues
     env = VecCheckNan(env, raise_exception=True)
 
