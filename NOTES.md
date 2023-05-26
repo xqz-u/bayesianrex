@@ -36,10 +36,12 @@ specify it like `--assets-dir /project/gpuuva22/shared/b-rex`
 	  essay
 - [ ] Functions docstrings
 - [ ] README section on how to run the different files
-- [ ] Speed up generation of 6e4 trajectory snippets (default number in original
+- [x] Speed up generation of 6e4 trajectory snippets (default number in original
 	  codebase). **Actually** they are generated fast; the problem might be with
 	  some 'faulty' checkpoints, which run forever in the RL game loop
 	  (investigate)
+- [ ] demonstrators training curves on wandb (Marga's ones don't show reward and
+	  loss)
 
 # Possible ways to improve results
 - `bayesianrex/dataset/demonstrators.py`: demonstrators trained on normal

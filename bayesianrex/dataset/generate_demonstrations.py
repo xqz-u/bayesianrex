@@ -1,4 +1,3 @@
-# TODO log trajectories returns on wandb
 import itertools as it
 import logging
 import random
@@ -22,6 +21,7 @@ TrainTrajectories = Tuple[
     List[PreferenceTraj], List[PreferenceTraj], List[PreferenceTraj], List[np.ndarray]
 ]
 
+trajectories_save_keys = ("states", "actions", "rewards")
 logger = logging.getLogger(__name__)
 device = utils.torch_device()
 
@@ -34,6 +34,10 @@ parser_conf = {
             """path to a directory containing PPO checkpoints, e.g."""
             """ 'data/demonstrations/BreakoutNoFrameskip-v4'"""
         ),
+    },
+    "trajectories-path": {
+        "type": Path,
+        "help": "path to already generated trajectories",
     },
     "env": {
         "type": str,
@@ -81,13 +85,15 @@ parser_conf = {
 
 
 def list_checkpoints(folder: Path) -> List[Path]:
-    checkpoints = sorted(list(folder.glob("PPO_*_steps.zip")), reverse=True)
+    checkpoints = list(folder.glob("PPO_*_steps.zip"))
     if not checkpoints:
         raise ValueError(f"{folder} does not contain valid PPO checkpoints")
-    logger.debug("Checkpoints in %s:\n%s", folder, pformat(checkpoints))
+    checkpoints = sorted(checkpoints, key=lambda c: int(c.stem.split("_")[1]))
+    logger.debug("Sorted checkpoints in %s:\n%s", folder, pformat(checkpoints))
     return checkpoints
 
 
+# TODO log trajectories returns on wandb
 def generate_trajectory_from_ckpt(
     ckpt_path: Path, env: GymEnv, n_traj: int, seed: Optional[int] = None
 ) -> RawTrajectories:
@@ -228,9 +234,10 @@ def pack_idxs(
 def full_trajectories_idxs(
     trajectories: RawTrajectories, n_traj: int, rng: np.random.Generator
 ) -> np.ndarray:
+    assert n_traj > 0
     # pick n_traj trajectory indexes
     pairs, lens = sample_trajectory_pairs(trajectories[0], n_traj, sort=True)
-    # pick random starts with replacement
+    # pick random starts and framestack skips with replacement
     starts = rng.choice(6, size=(n_traj, 2))
     steps = rng.integers(3, 7, size=n_traj)
     return pack_idxs(pairs, lens, starts, steps)
@@ -243,8 +250,9 @@ def snippet_trajectories_idxs(
     snippet_max_len: int,
     rng: np.random.Generator,
 ) -> np.ndarray:
+    assert n_snippets > 0
     # only sample from trajectories long enough
-    states = list(filter(lambda s: len(s) >= snippet_min_len, trajectories[0]))
+    states = [s for s in trajectories[0] if len(s) >= snippet_min_len]
     # pick n_snipptes trajectory indexes
     pairs, lens = sample_trajectory_pairs(states, n_snippets, sort=True)
     max_lens = np.repeat(snippet_max_len, len(lens))
@@ -269,14 +277,18 @@ def create_training_idxs(
     rng: np.random.Generator,
     snippet_len_bounds: Tuple[int],
 ) -> np.ndarray:
-    full_idxs = full_trajectories_idxs(trajectories, n_traj, rng)
-    snippet_idxs = snippet_trajectories_idxs(
-        trajectories, n_snippets, *snippet_len_bounds, rng
-    )
-    logger.info(
-        "# full trajectories: %d # snippets: %d", len(full_idxs), len(snippet_idxs)
-    )
-    return np.vstack((full_idxs, snippet_idxs))
+    stackable = []
+    if n_traj > 0:
+        full_idxs = full_trajectories_idxs(trajectories, n_traj, rng)
+        stackable.append(full_idxs)
+        logger.info("# full trajectories: %d", len(full_idxs))
+    if n_snippets > 0:
+        snippet_idxs = snippet_trajectories_idxs(
+            trajectories, n_snippets, *snippet_len_bounds, rng
+        )
+        stackable.append(snippet_idxs)
+        logger.info("# snippets: %d", len(snippet_idxs))
+    return np.vstack(stackable or [[]])
 
 
 def construct_training_data(
@@ -307,12 +319,29 @@ def create_training_data(
     train_idxs = create_training_idxs(
         trajectories, n_traj, n_snippets, rng, snippet_len_bounds
     )
-    return construct_training_data(trajectories, train_idxs), train_idxs
+    train_data = train_idxs
+    if train_idxs.size:
+        train_data = construct_training_data(trajectories, train_idxs)
+    return train_data, train_idxs
+
+
+def load_trajectories(path: Path) -> List[np.ndarray]:
+    start = time.time()
+    trajectories = joblib.load(path)
+    dt = time.time() - start
+    assert set(trajectories_save_keys) == set(
+        trajectories
+    ), f"Trajectories missing either key of {trajectories_save_keys}"
+    trajectories = list(trajectories.values())
+    logger.info("Loaded %d trajectories in %.2fs", len(trajectories[0]), dt)
+    return trajectories
 
 
 def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray]:
+    if args.seed is not None:
+        logger.info("Calling sb3 `set_random_seed` with seed %d", args.seed)
+        set_random_seed(args.seed, using_cuda=device.type != "cpu")
     if args.env == "enduro":
-        # NOTE we don't vary the loss function for now, always trex+ss
         assert (
             args.n_episodes >= 2
         ), f"Need at least 2 episodes per checkpoint on enduro, got {args.n_episodes}"
@@ -323,17 +352,25 @@ def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray]:
         )
         args.n_traj = 10000
         args.n_snippets = 0
-    if args.seed is not None:
-        logger.info("Calling sb3 `set_random_seed` with seed %d", args.seed)
-        set_random_seed(args.seed, using_cuda=device.type != "cpu")
-    checkpoints = list_checkpoints(args.checkpoints_dir)
-    trajectories = generate_demonstrations(
-        checkpoints,
-        args.env,
-        args.n_episodes,
-        seed=args.seed,
-        n_envs=args.n_envs,
-    )
+    savedir = args.train_data_save_dir
+    if savedir is not None:
+        savedir.mkdir(parents=True, exist_ok=True)
+    if args.trajectories_path is not None:
+        logger.info("Loading trajectories from %s", args.trajectories_path)
+        trajectories = load_trajectories(args.trajectories_path)
+    else:
+        trajectories = generate_demonstrations(
+            list_checkpoints(args.checkpoints_dir),
+            args.env,
+            args.n_episodes,
+            seed=args.seed,
+            n_envs=args.n_envs,
+        )
+        if savedir is not None:
+            traj_path = savedir / "trajectories"
+            trajectories_dict = dict(zip(trajectories_save_keys, trajectories))
+            logger.info("Saving %d trajectories to %s", len(trajectories[0]), traj_path)
+            joblib.dump(trajectories_dict, traj_path, compress=True)
     train_data, train_idxs = create_training_data(
         trajectories,
         args.n_traj,
@@ -341,19 +378,10 @@ def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray]:
         np.random.default_rng(args.seed),
         (args.snippet_min_len, args.snippet_max_len),
     )
-
-    savedir = args.train_data_save_dir
     if savedir is not None:
-        savedir.mkdir(parents=True, exist_ok=True)
-
-        traj_path = savedir / f"trajectories_{args.env}"
-        trajectories_dict = dict(zip(["states", "actions", "rewards"], trajectories))
-        logger.info("Saving %d trajectories to %s...", len(trajectories[0]), traj_path)
-        joblib.dump(trajectories_dict, traj_path, compress=True)
-
-        train_idxs_path = savedir / f"train_data_{args.env}"
+        train_idxs_path = savedir / "train_pairs.npz"
         logger.info(
-            "Saving %d training datapoints indexes to %s...",
+            "Saving %d training datapoints indexes to %s",
             len(train_idxs),
             train_idxs_path,
         )
@@ -374,7 +402,9 @@ if __name__ == "__main__":
     # args.n_snippets = 200
     # args.n_episodes = 1
     # args.log_level = 1
-    # args.train_data_save_dir = config.ASSETS_DIR
+    # d = config.TRAIN_DATA_DIR / "BreakoutNoFrameskip-v4"
+    # args.train_data_save_dir = d
+    # args.trajectories_path = d / "trajectories"
 
     utils.setup_root_logging(args.log_level)
     main(args)
