@@ -3,9 +3,20 @@ models/*
 ROMS/*
 HC ROMS/*
 code/model_checkpoints/*
-# model_checkpoints
+model_checkpoints
 training_data.zip
 training_data/*
+**/.xqz-u-egg
+data/*
+logs/*
+tests/assets/*
+.vscode
+
+
+
+
+
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
