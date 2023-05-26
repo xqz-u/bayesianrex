@@ -1,5 +1,7 @@
 # TODO log trajectories returns on wandb
+import itertools as it
 import logging
+import random
 import time
 from argparse import Namespace
 from pathlib import Path
@@ -73,10 +75,7 @@ parser_conf = {
     },
     "train-data-save-dir": {
         "type": Path,
-        "help": (
-            """folder to save trajectories and training data"""
-            """\n*NOTE* saving training data might require a lot of time and disk space"""
-        ),
+        "help": "folder to save trajectories and training data indexes",
     },
 }
 
@@ -175,112 +174,143 @@ def generate_demonstrations(
     return tuple(list(zip(*trajectories)))[:3]
 
 
-def training_trajectories(
+def sample_trajectory_pairs(
+    states: List[np.ndarray], n: int, sort: bool = False
+) -> Tuple[np.ndarray]:
+    """
+    Randomly select pairs of trajectories as training datapoints for IRL from preferences.
+
+    :param states: A list of trajectories elements (could be states, actions, rewards)
+    :param n: The number of pairs to generate
+    :param sort: Whether to sort pairs in increasing order. This can be useful
+        if `states` are already sorted; then, a pair [i, j] has the index of the
+        better demonstration at location 0
+    :return: An array of index pairs and an array of trajectory lengths for each pair
+    """
+    # same traj can be compared multiple times, but only with a different traj;
+    # cannot use rng.choice easily here
+    pairs = random.choices(list(it.permutations(range(len(states)), 2)), k=n)
+    pairs = np.array(pairs)
+    assert (pairs[:, 0] != pairs[:, 1]).all()
+    if sort:
+        pairs.sort(1)
+    return pairs, np.array([(len(states[i]), len(states[j])) for i, j in pairs])
+
+
+def pack_idxs(
+    ids: np.ndarray,
+    ends: np.ndarray,
+    starts: Optional[np.ndarray] = None,
+    step: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """
+    Represent training datapoints for IRL from preferences as an index array.
+
+    :param ids: (N,2) array of trajectories indeces
+    :param ends: (N,2) array of trajectories endpoints
+    :param starts: (N,2) array of trajectories startpoints, defaults to 0
+    :param step: (N,) array of downsampling steps, defaults to 1
+    :return: A packed representation of the training datapoints, structured as
+        `[worst_trj_idx,worst_trj_start,worst_trj_end,best_trj_idx,best_trj_start,best_trj_end,step]`
+    """
+    # structure: [w,start_w,end_w,b,start_b,end_b,step]
+    packed = np.hstack((np.zeros((len(ids), 6)), np.ones((len(ids), 1)))).astype(int)
+    # invariant assumption: worst trajectory at ids[:, 0]
+    packed[:, 0], packed[:, 3] = ids[:, 0], ids[:, 1]
+    if starts is not None:
+        packed[:, 1], packed[:, 4] = starts[:, 0], starts[:, 1]
+    packed[:, 2], packed[:, 5] = ends[:, 0], ends[:, 1]
+    if step is not None:
+        packed[:, 6] = step
+    return packed
+
+
+def full_trajectories_idxs(
     trajectories: RawTrajectories, n_traj: int, rng: np.random.Generator
-) -> TrainTrajectories:
-    states, actions, _ = trajectories
-    train_states, train_actions, train_times, labels = [], [], [], []
-    # add full trajs (for use on Enduro)
-    start = time.time()
-    for n in range(n_traj):
-        # pick 2 different random trajectories
-        i, j = rng.choice(len(states), size=2, replace=False)
-        # random downsampled partial trajs with random start and frame skip
-        si, sj = rng.choice(6, size=2)
-        step = rng.integers(3, 7)
-        train_states.append((states[i][si::step], states[j][sj::step]))
-        train_actions.append((actions[i][si::step], actions[j][sj::step]))
-        train_times.append(
-            (np.arange(si, len(states[i]), step), np.arange(sj, len(states[j]), step))
-        )
-        labels.append(np.array(i < j, dtype=int))
-    end = time.time()
-    logger.info("Generated %d full trajectories in %.2fs", n_traj, end - start)
-    return train_states, train_actions, train_times, labels
+) -> np.ndarray:
+    # pick n_traj trajectory indexes
+    pairs, lens = sample_trajectory_pairs(trajectories[0], n_traj, sort=True)
+    # pick random starts with replacement
+    starts = rng.choice(6, size=(n_traj, 2))
+    steps = rng.integers(3, 7, size=n_traj)
+    return pack_idxs(pairs, lens, starts, steps)
 
 
-# NOTE if training doesn't work, we should try swapping the condition in
-# i_betterthan_j. rn trajectories are sorted in *increasing* order of return, so
-# a trajectory with a greater index should have label 1 to my understanding. but
-# this is reversed in LearnAtariRewardLinear.create_training_data (they also
-# sort trajectories increasingly)
-# NOTE assumes trajectories are sorted in *increasing* order of return
-# FIXME generating 60K snippets takes long, could multiprocessing.map?
-def training_snippets(
+def snippet_trajectories_idxs(
     trajectories: RawTrajectories,
     n_snippets: int,
     snippet_min_len: int,
     snippet_max_len: int,
     rng: np.random.Generator,
-) -> TrainTrajectories:
-    def helper():
-        start_b = rng.integers(max_samplable_len - rand_len + 1)
-        return start_b, rng.integers(start_b, len(states[worst]) - rand_len + 1)
-
-    states, actions, _ = trajectories
-    train_states, train_actions, train_times, labels = [], [], [], []
-    # FIXED SIZE SNIPPETS WITH PROGRESS PRIOR
+) -> np.ndarray:
     # only sample from trajectories long enough
-    states = list(filter(lambda s: len(s) >= snippet_min_len, states))
+    states = list(filter(lambda s: len(s) >= snippet_min_len, trajectories[0]))
+    # pick n_snipptes trajectory indexes
+    pairs, lens = sample_trajectory_pairs(states, n_snippets, sort=True)
+    max_lens = np.repeat(snippet_max_len, len(lens))
+    max_samplable_lens = np.hstack((lens, max_lens[..., None])).min(1)
+    # pick some random snippet lengths achievable in all trajectories
+    rand_lens = rng.integers(snippet_min_len, max_samplable_lens, endpoint=True)
+    # desired: worse demo samples start earlier than better ones
+    # NOTE when a short trajectory is paired with a long one, snippets can be
+    # wildly discountuous with this sampling strategy
+    worst_s = rng.integers(0, lens[np.arange(len(lens)), 1] - rand_lens, endpoint=True)
+    best_s = rng.integers(
+        worst_s, lens[np.arange(len(lens)), 1] - rand_lens, endpoint=True
+    )
+    ends = np.stack((worst_s + rand_lens, best_s + rand_lens), -1)
+    return pack_idxs(pairs, ends, np.stack((worst_s, best_s), -1))
+
+
+def create_training_idxs(
+    trajectories: RawTrajectories,
+    n_traj: int,
+    n_snippets: int,
+    rng: np.random.Generator,
+    snippet_len_bounds: Tuple[int],
+) -> np.ndarray:
+    full_idxs = full_trajectories_idxs(trajectories, n_traj, rng)
+    snippet_idxs = snippet_trajectories_idxs(
+        trajectories, n_snippets, *snippet_len_bounds, rng
+    )
+    logger.info(
+        "# full trajectories: %d # snippets: %d", len(full_idxs), len(snippet_idxs)
+    )
+    return np.vstack((full_idxs, snippet_idxs))
+
+
+def construct_training_data(
+    trajectories: RawTrajectories, idxs: np.ndarray
+) -> TrainTrajectories:
+    states, actions, _ = trajectories
+    train_states, train_actions, train_times = [], [], []
     start = time.time()
-    for n in range(n_snippets):
-        # pick 2 different random trajectories
-        i, j = rng.choice(len(states), size=2, replace=False)
-        # create random snippets without frame downsampling
-        # find min length of both demos to ensure we pick a (sub)demo no earlier
-        # than that chosen in worse demo, like in the B-Rex codebase
-        max_samplable_len = min(len(states[i]), len(states[j]))
-        max_rand_len = min(snippet_max_len, max_samplable_len) + 1
-        rand_len = rng.integers(snippet_min_len, max_rand_len)
-
-        i_betterthan_j = i > j
-        best, worst = (i, j) if i_betterthan_j else (j, i)
-        best_s, worst_s = helper()
-        best_e, worst_e = best_s + rand_len, worst_s + rand_len
-
-        state_snippets = (states[best][best_s:best_e], states[worst][worst_s:worst_e])
-        action_snippets = (
-            actions[best][best_s:best_e],
-            actions[worst][worst_s:worst_e],
-        )
-        train_states.append(state_snippets)
-        train_actions.append(action_snippets)
-        labels.append(np.array(i_betterthan_j, dtype=int))
-        train_times.append((np.arange(best_s, best_e), np.arange(worst_s, worst_e)))
-
-        logger.debug(
-            (
-                """\nbest start %d end %d worst start %d worst end %d\nbest len"""
-                """ %d sampled len %d\nworst len %d sampled len %d\n"""
-                """------------------------"""
-            ),
-            best_s,
-            best_e,
-            worst_s,
-            worst_e,
-            len(states[best]),
-            len(train_states[-1][0]),
-            len(states[worst]),
-            len(train_states[-1][1]),
-        )
+    for slice_ in idxs:
+        b, sb, eb, w, sw, ew, step = slice_
+        train_states.append((states[w][sw:ew:step], states[b][sb:eb:step]))
+        train_actions.append((actions[w][sw:ew:step], actions[b][sb:eb:step]))
+        train_times.append((np.arange(sw, ew, step), np.arange(sb, eb, step)))
+        logger.debug("[w,ws,we,b,bs,be,step]: %s", slice_)
     end = time.time()
-    logger.info("Generated %d snippet trajectories in %.2fs", n_snippets, end - start)
-    return train_states, train_actions, train_times, labels
+    logger.info("Reconstructed %d train demos in %.2fs", len(idxs), end - start)
+    return train_states, train_actions, train_times, np.ones(len(idxs), dtype=int)
 
 
+# NOTE assumes trajectories are sorted in *increasing* order of return
 def create_training_data(
     trajectories: RawTrajectories,
     n_traj: int,
     n_snippets: int,
     rng: np.random.Generator,
     snippet_len_bounds: Tuple[int],
-) -> TrainTrajectories:
-    full_demos = training_trajectories(trajectories, n_traj, rng)
-    snippets = training_snippets(trajectories, n_snippets, *snippet_len_bounds, rng)
-    return [d + s for s, d in zip(snippets, full_demos)]
+) -> Tuple[TrainTrajectories, np.ndarray]:
+    train_idxs = create_training_idxs(
+        trajectories, n_traj, n_snippets, rng, snippet_len_bounds
+    )
+    return construct_training_data(trajectories, train_idxs), train_idxs
 
 
-def main(args: Namespace) -> Tuple[TrainTrajectories, RawTrajectories]:
+def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray]:
     if args.env == "enduro":
         # NOTE we don't vary the loss function for now, always trex+ss
         assert (
@@ -304,32 +334,14 @@ def main(args: Namespace) -> Tuple[TrainTrajectories, RawTrajectories]:
         seed=args.seed,
         n_envs=args.n_envs,
     )
-    training_data = create_training_data(
+    train_data, train_idxs = create_training_data(
         trajectories,
         args.n_traj,
         args.n_snippets,
         np.random.default_rng(args.seed),
         (args.snippet_min_len, args.snippet_max_len),
     )
-    return training_data, trajectories
 
-
-if __name__ == "__main__":
-    parser = utils.define_cl_parser(parser_conf)
-    args = parser.parse_args()
-
-    # from bayesianrex import config
-    # args.seed = 0
-    # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
-    # args.n_traj = 100
-    # args.n_snippets = 2000
-    # args.log_level = 1
-
-    utils.setup_root_logging(args.log_level)
-    training_data, trajectories = main(args)
-
-    # NOTE saving training_data['states'] takes loads of time and 2+GB with the
-    # default number of snippets and full trajectories
     savedir = args.train_data_save_dir
     if savedir is not None:
         savedir.mkdir(parents=True, exist_ok=True)
@@ -339,14 +351,30 @@ if __name__ == "__main__":
         logger.info("Saving %d trajectories to %s...", len(trajectories[0]), traj_path)
         joblib.dump(trajectories_dict, traj_path, compress=True)
 
-        train_data_path = savedir / f"train_data_{args.env}"
-        train_data_dict = dict(
-            zip(["states", "actions", "times", "labels"], training_data)
-        )
+        train_idxs_path = savedir / f"train_data_{args.env}"
         logger.info(
-            "Saving %d training datapoints to %s...",
-            len(training_data[0]),
-            train_data_path,
+            "Saving %d training datapoints indexes to %s...",
+            len(train_idxs),
+            train_idxs_path,
         )
-        joblib.dump(train_data_dict, train_data_path, compress=True)
+        np.savez_compressed(train_idxs_path, train_idxs)
         logger.info("DONE!")
+    return train_data, train_idxs
+
+
+if __name__ == "__main__":
+    parser = utils.define_cl_parser(parser_conf)
+    args = parser.parse_args()
+
+    # from bayesianrex import config
+    # args.seed = 0
+    # # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
+    # args.checkpoints_dir = config.ASSETS_DIR / "demonstrators_tiny"
+    # args.n_traj = 100
+    # args.n_snippets = 200
+    # args.n_episodes = 1
+    # args.log_level = 1
+    # args.train_data_save_dir = config.ASSETS_DIR
+
+    utils.setup_root_logging(args.log_level)
+    main(args)
