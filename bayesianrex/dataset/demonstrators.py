@@ -8,6 +8,7 @@ import wandb
 import yaml
 from bayesianrex import config, constants, utils
 from bayesianrex.environments import create_atari_env
+from bayesianrex.networks import RewardNetwork
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
@@ -32,6 +33,7 @@ def learn_demonstrator(args: Namespace):
     env_id = constants.envs_id_mapper.get(args.env)
     ckpt_path = args.assets_dir / "demonstrators" / env_id
     # run the environments in parallel, the overhead should be worth it with Atari
+    # TODO: add option to add custom reward function wrapper
     env = create_atari_env(
         env_id,
         **conf["env_args"],
