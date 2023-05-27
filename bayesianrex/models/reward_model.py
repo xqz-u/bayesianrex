@@ -74,7 +74,7 @@ class RewardNetwork(nn.Module):
     def cum_return(self, traj: T) -> Tuple[T, T, T, Optional[T], T]:
         """Estimates the return of a trajectory."""
         # get embedding of trajectory in BNCHW layout from BNHWC one
-        traj_embedding = self.get_embedding(traj.permute(0, 3, 1, 2))
+        traj_embedding = self.get_embedding(traj)
         mu = self.fc_mu(traj_embedding)
         var = self.fc_var(traj_embedding)  # var is actually the log variance
         # If training the embeddings, sample latent space to compute reward
@@ -98,7 +98,7 @@ class RewardNetwork(nn.Module):
         )
 
     def get_embedding(self, traj: T) -> T:
-        return self.cnn_embedding(traj)
+        return self.cnn_embedding(traj.permute(0, 3, 1, 2))
 
     def estimate_temporal_difference(self, z1: T, z2: T) -> T:
         return self.temporal_difference_M(torch.hstack((z1, z2)))
@@ -112,15 +112,9 @@ class RewardNetwork(nn.Module):
     def decode(self, encoding: T) -> T:
         return self.decoder(encoding).permute(0, 2, 3, 1)
 
-    def state_features(self, traj: T) -> T:
+    def trajectory_embedding(self, traj: T, sum_: bool =False) -> T:
         with torch.no_grad():
-            x = self.cnn_embedding(traj.permute(0, 3, 1, 2))
-            mu = self.fc_mu(x)
-            mu_sum = torch.sum(mu, dim=0)
-        return mu_sum
-
-    def state_feature(self, obs: T) -> T:
-        with torch.no_grad():
-            x = self.cnn_embedding(obs.permute(0, 3, 1, 2))
-            mu = self.fc_mu(x)
+            mu = self.fc_mu(self.get_embedding(traj))
+            if sum_:
+                mu = mu.sum(0)
         return mu

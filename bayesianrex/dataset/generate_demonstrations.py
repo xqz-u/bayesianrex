@@ -184,6 +184,12 @@ def generate_demonstrations(
     return tuple(list(zip(*trajectories)))[:3]
 
 
+def generate_demonstrations_from_dir(
+    checkpoints_dir: Path, *args, **kwargs
+) -> RawTrajectories:
+    return generate_demonstrations(list_checkpoints(checkpoints_dir), *args, **kwargs)
+
+
 def sample_trajectory_pairs(
     states: List[np.ndarray], n: int, sort: bool = False
 ) -> Tuple[np.ndarray]:
@@ -377,8 +383,8 @@ def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray, RawTrajectorie
     if args.trajectories_path is not None:
         trajectories = load_trajectories(args.trajectories_path)
     else:
-        trajectories = generate_demonstrations(
-            list_checkpoints(args.checkpoints_dir),
+        trajectories = generate_demonstrations_from_dir(
+            args.checkpoints_dir,
             args.env,
             args.n_episodes,
             seed=args.seed,
