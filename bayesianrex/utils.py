@@ -1,28 +1,107 @@
+import functools as ft
 import logging
+import time
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from typing import Any, Callable, List, Union
+
+import numpy as np
+import torch
 
 
-def write_line(_sequence, _writer, newline=True):
-    for i, f in enumerate(_sequence):
-        if i < len(_sequence) - 1:
-            _writer.write(str(f) + ",")
-        else:
-            if newline:
-                _writer.write(str(f) + "\n")
-            else:
-                _writer.write(str(f))
+def torch_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def setup_root_logging(level: int = logging.INFO):
+# NOTE unsafe in python because no tail recursion optimization, but in this
+# project this is used with shallow structures only
+def tensorify(array: List[np.ndarray]) -> List[torch.Tensor]:
+    if isinstance(array, np.ndarray):
+        return torch.from_numpy(array)
+    return list(map(tensorify, array))
+
+
+def define_cl_parser(args_dict: dict) -> ArgumentParser:
+    p = ArgumentParser(formatter_class=ArgumentDefaultsHelpFormatter)
+    for k, v in args_dict.items():
+        p.add_argument(f"--{k}", **v)
+    if "log-level" not in args_dict:
+        p.add_argument(
+            "--log-level",
+            **{
+                "type": int,
+                "default": 2,
+                "help": (
+                    """logging severity,"""
+                    """ number in [1, 5] (increase to see less messages)"""
+                ),
+            },
+        )
+    return p
+
+
+def setup_root_logging(level: int = 2):
     """
-    Root entry point to configure logging. Should be called once from the
-    program's main entry point.
+    Entry point to configure logging, called once from the program's main entry point.
 
-    :param level: The minimum logging level of displayed messages, defaults to
-        logging.INFO.
+    :param level: Minimum logging severity, integer between [1, 5]
     """
-
+    assert level in range(
+        1, 6
+    ), "See https://docs.python.org/3/library/logging.html#logging-levels for valid logging levels"
     logging.basicConfig(
-        level=level,
+        level=level * 10,
         format="p%(process)s [%(asctime)s] [%(levelname)s]  %(message)s  (%(name)s:%(lineno)s)",
         datefmt="%y-%m-%d %H:%M",
     )
+
+
+# from
+# https://github.com/DLR-RM/rl-baselines3-zoo/blob/382dcabbd9815cb9557503a7caa0c54a562fa7fb/rl_zoo3/utils.py#L298
+def linear_schedule(initial_value: Union[float, str]) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value: (float or str)
+    :return: (function)
+    """
+    # Force conversion to float
+    initial_value_ = float(initial_value)
+
+    def func(progress_remaining: float) -> float:
+        """
+        Progress will decrease from 1 (beginning) to 0.
+
+        :param progress_remaining: (float)
+        :return: (float)
+        """
+        return progress_remaining * initial_value_
+
+    return func
+
+
+def adjust_ppo_schedules(ppo_args: dict):
+    for k in ["learning_rate", "clip_range"]:
+        if ppo_args.get(k, "").startswith("lin_"):
+            init_val = float(ppo_args[k][4:])
+            ppo_args[k] = linear_schedule(init_val)
+    return ppo_args
+
+
+def timed(end_msg: str) -> callable:
+    def decorator(callable_) -> callable:
+        @ft.wraps(callable_)
+        def inner(*args, **kwargs) -> Any:
+            start = time.time()
+            ret = callable_(*args, **kwargs)
+            end = time.time()
+            msg = f"{end_msg}: {end - start:.2f}"
+            if len(args) and hasattr(args[0], "logger"):
+                # then -> args[0] == self
+                args[0].logger.info(msg)
+            else:
+                print(msg)
+            return ret
+
+        return inner
+
+    return decorator

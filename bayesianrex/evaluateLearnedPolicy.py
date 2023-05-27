@@ -6,47 +6,36 @@ import time
 import numpy as np
 import random
 import torch
-from run_test import *
 #import matplotlib.pylab as plt
 import argparse
+import yaml
+from bayesianrex import constants, config
+from bayesianrex.environments import create_atari_env
+import multiprocessing as mp
+import wandb
 
-def evaluate_learned_policy(env_name, checkpointpath, num_episodes):
-    if env_name == "spaceinvaders":
-        env_id = "SpaceInvadersNoFrameskip-v4"
-    elif env_name == "mspacman":
-        env_id = "MsPacmanNoFrameskip-v4"
-    elif env_name == "videopinball":
-        env_id = "VideoPinballNoFrameskip-v4"
-    elif env_name == "beamrider":
-        env_id = "BeamRiderNoFrameskip-v4"
-    elif env_name == "montezumarevenge":
-        env_id = "MontezumaRevengeNoFrameskip-v4"
-    else:
-        env_id = env_name[0].upper() + env_name[1:] + "NoFrameskip-v4"
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecCheckNan
 
+def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
+    env_id = constants.envs_id_mapper.get(env_name)
     env_type = "atari"
 
     stochastic = True
+    conf["env_args"] = {"n_envs": args.n_envs or mp.cpu_count(), "seed": args.seed}
 
-    #env id, env type, num envs, and seed
-    env = make_vec_env(env_id, 'atari', 1, 0,
-                       wrapper_kwargs={
-                           'clip_rewards':False,
-                           'episode_life':False,
-                       })
+    env = create_atari_env(
+        env_id, 
+        **conf["env_args"],
+        vec_env_cls=SubprocVecEnv
+    )
+    env = VecCheckNan(env, raise_exception=True)
 
-
-
-    env = VecFrameStack(env, 4)
-
-
-    agent = PPO2Agent(env, env_type, stochastic)  #defaults to stochastic = False (deterministic policy)
-    #agent = RandomAgent(env.action_space)
+    agent = PPO.load(checkpointpath)
 
     learning_returns = []
     print(checkpointpath)
 
-    agent.load(checkpointpath)
     episode_count = num_episodes
     for i in range(episode_count):
         done = False
@@ -54,34 +43,44 @@ def evaluate_learned_policy(env_name, checkpointpath, num_episodes):
         r = 0
 
         ob = env.reset()
-        #traj.append(ob)
-        #print(ob.shape)
         steps = 0
         acc_reward = 0
         while True:
-            action = agent.act(ob, r, done)
-            #print(action)
+            action, _states = agent.predict(ob)
             ob, r, done, _ = env.step(action)
 
-            #print(ob.shape)
             steps += 1
-            #print(steps)
             acc_reward += r[0]
             if done:
                 print("steps: {}, return: {}".format(steps,acc_reward))
+                wandb.log({'steps': steps, 'acc_reward': acc_reward})
                 break
         learning_returns.append(acc_reward)
 
-
-
+    wandb.log({'avg_reward': np.mean(learning_returns), 'std': np.std(learning_returns)})
     env.close()
     #tf.reset_default_graph()
-
-
 
     return learning_returns
 
     #return([np.max(learning_returns), np.min(learning_returns), np.mean(learning_returns)])
+
+def eval_checkpoint(checkpointfile, env_name, num_episodes, conf):
+    n_steps = checkpointfile.split('/')[-1]
+    run_name = f'{env_name}_{n_steps}'
+    run = wandb.init(
+        project='evaluate_checkpoints',
+        entity='bayesianrex-dl2', 
+        name=run_name,
+        monitor_gym=True
+        )
+
+    print("*"*10)
+    print(checkpointfile)
+    print("*"*10)
+    _ = evaluate_learned_policy(env_name, checkpointfile, num_episodes, conf)
+    wandb.finish()
+
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description=None)
@@ -89,22 +88,23 @@ if __name__=="__main__":
     parser.add_argument('--env_name', default='', help='Select the environment name to run, i.e. pong')
     parser.add_argument('--checkpointpath', default='', help='path to checkpoint to run eval on')
     parser.add_argument('--num_episodes', default = 30, type=int, help='number of rollouts')
+    parser.add_argument('--n_envs', type=int, default=1)
+    parser.add_argument('--eval_all', action='store_true', default=False, help='enable to evaluate all the checkpoints in the checkpointpath directory')
     args = parser.parse_args()
     env_name = args.env_name
     #set seeds
     seed = int(args.seed)
     torch.manual_seed(seed)
     np.random.seed(seed)
-    tf.set_random_seed(seed)
 
-    checkpointpath = args.checkpointpath
-    print("*"*10)
-    print(env_name)
-    print("*"*10)
-    returns = evaluate_learned_policy(env_name, checkpointpath, args.num_episodes)
-    #write returns to file
-    f = open("./eval/" + env_name + checkpointpath.replace("/","_") + "_evaluation.txt",'w')
-    for r in returns:
-        f.write("{}\n".format(r))
-        print(r)
-    f.close()
+    with open(config.ROOT_DIR / "atari_conf.yml") as fd:
+        conf = yaml.safe_load(fd)
+
+    if args.eval_all:
+        for cpt_file in os.listdir(args.checkpointpath):
+            if '.zip' in cpt_file:
+                path = f'{args.checkpointpath}/{cpt_file[:-4]}'
+                eval_checkpoint(path, args.env_name, args.num_episodes, conf)
+    else:
+        eval_checkpoint(args.checkpointpath, args.env_name, args.num_episodes, conf)
+
