@@ -33,6 +33,7 @@ python -m bayesianrex.dataset.demonstrators
 ```
 This will by default save Weighs&Biases and TensorBoard logs, checkpoints and final trained model in corresponding folders 
 under `assets/`. 
+It's possible to encounter an error here, which is that `self.env.reset(seed=seed, options=options)` does not take keyword argument `seed`. We do not know how to fix this error, except remove these arguments from the place where it is called (`YOUR-ENV/Lib/site-packages/gymnasium/core.py`, line 414). This fixed it for us, but not all of us encountered it, so hopefully you won't have to resort to this hacky fix. 
 
 ## Training the reward embedding model
 
