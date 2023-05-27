@@ -4,7 +4,7 @@ import torch
 from torch import Tensor as T
 from torch.nn import functional as F
 
-from bayesianrex.networks import RewardNetwork
+from bayesianrex.models.reward_model import RewardNetwork
 
 # NOTE everywhere, `mu` is a trajectory encoding
 

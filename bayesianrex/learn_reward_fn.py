@@ -10,10 +10,11 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from wandb.sdk.wandb_run import Run
 
-from bayesianrex import config, constants, environments, losses, utils
+from bayesianrex import config, constants, losses, utils
 from bayesianrex.dataset import generate_demonstrations as gen_demos
 from bayesianrex.dataset.dataset_torch import make_demonstrations_loader
-from bayesianrex.networks import RewardNetwork
+from bayesianrex.models.reward_model import RewardNetwork
+from bayesianrex.models.utils import make_reward_network
 
 logger = logging.getLogger(__name__)
 device = utils.torch_device()
@@ -79,16 +80,10 @@ def main(args: Namespace):
     can_load = not (train_idxs_path is None or trj_path is None)
     if can_load:
         train_data, *_ = gen_demos.load_train_data(trj_path, train_idxs_path)
-        # train_data, train_idxs, trajectories = gen_demos.load_train_data(
-        #     trj_path, train_idxs_path
-        # )
     else:
         train_data, *_ = gen_demos.main(args)
     train_loader = make_demonstrations_loader(train_data)
-    n_actions = environments.create_atari_env(
-        constants.envs_id_mapper.get(args.env)
-    ).action_space.n
-    reward_net = RewardNetwork(args.encoding_dims, n_actions, device).to(device)
+    reward_net = make_reward_network(args.env, args.encoding_dims, device).to(device)
     optimizer = Adam(reward_net.parameters(), **constants.reward_net_hparams)
 
     # FIXME after training has started for a while, C-c is not captured
@@ -165,7 +160,7 @@ if __name__ == "__main__":
     p = utils.define_cl_parser(parser_conf)
     args = p.parse_args()
 
-    args.seed = 0
+    # args.seed = 0
     # args.log_level = 1
     # # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
     # args.checkpoints_dir = config.DEMONSTRATIONS_DIR.parent / "demonstrators_tiny"
@@ -173,12 +168,12 @@ if __name__ == "__main__":
     # args.n_snippets = 2000
     # args.wandb_entity = "bayesianrex-dl2"
     # args.wandb_project = "reward-model"
-    args.trajectories_path = Path(
-        "assets/train_data/BreakoutNoFrameskip-v4/trajectories"
-    )
-    args.train_data_path = Path(
-        "assets/train_data/BreakoutNoFrameskip-v4/train_pairs.npz"
-    )
+    # args.trajectories_path = Path(
+    #     "assets/train_data/BreakoutNoFrameskip-v4/trajectories"
+    # )
+    # args.train_data_path = Path(
+    #     "assets/train_data/BreakoutNoFrameskip-v4/train_pairs.npz"
+    # )
 
     utils.setup_root_logging(args.log_level)
     main(args)

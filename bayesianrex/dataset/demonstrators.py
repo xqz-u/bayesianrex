@@ -9,7 +9,7 @@ import yaml
 from bayesianrex import config, constants, utils
 from bayesianrex.dataset.wrapper import CustomRewardWrapper
 from bayesianrex.environments import create_atari_env
-from bayesianrex.networks import RewardNetwork
+from bayesianrex.models.reward_model import RewardNetwork
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
@@ -35,7 +35,7 @@ def learn_demonstrator(args: Namespace):
     ckpt_path = args.assets_dir / "demonstrators" / env_id
     # run the environments in parallel, the overhead should be worth it with Atari
     if args.Custom_Reward:
-        ckpt_path = args.assets_dir / "demonstrators" / f'{args.env}_custom'
+        ckpt_path = args.assets_dir / "demonstrators" / f"{args.env}_custom"
     env = create_atari_env(
         env_id,
         **conf["env_args"],

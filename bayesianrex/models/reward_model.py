@@ -1,9 +1,12 @@
+import logging
 from typing import Dict, Optional, Tuple
 
 import torch
 import torch.distributions as tdist
 from torch import Tensor as T
 from torch import nn
+
+logger = logging.getLogger(__name__)
 
 
 class RewardNetwork(nn.Module):
