@@ -1,3 +1,5 @@
+import random
+
 import torch.nn as nn
 import torch
 import joblib
@@ -49,7 +51,60 @@ def calc_linearized_pairwise_ranking_loss(last_layer, pairwise_prefs, demo_embed
 
         return -criterion(outputs, labels)
 
-def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_size, weight_output_filename, device):
+def dcg_at_k(sorted_labels, k):
+    if k > 0:
+        k = min(sorted_labels.shape[0], k)
+    else:
+        k = sorted_labels.shape[0]
+    denom = 1.0 / np.log2(np.arange(k) + 2.0)
+    nom = 2 ** sorted_labels - 1.0
+    dcg = np.sum(nom[:k] * denom)
+    return dcg
+
+def listwise_loss(predictions: list[nn.Tensor], labels: list[int]):
+    N = len(labels)
+    # obtain positional indexes based on predicted rewards
+    # e.g. [13, 0, 14, 5] -> [1, 3, 0, 2].
+    predicted_order = np.argsort(predictions)
+    ideal_DCG = dcg_at_k(labels, N)
+    NDCG_OG = dcg_at_k(predicted_order, N) / ideal_DCG
+
+    # Compute lambda_ij
+    si_sj = (predictions - predictions.T)
+    Sij = torch.sign(labels - labels.T)
+    lambda_ij = (1 - Sij) / 2 - 1 / (1 + torch.exp((si_sj)))
+
+    arange_vector = torch.arange(N)
+    index = torch.vstack((torch.repeat_interleave(arange_vector, N), arange_vector.repeat(N))).T
+
+    swap = torch.max(index, dim=1)[0]
+    all_indices = torch.arange(N).repeat(N * N).reshape((N * N, N))
+    all_indices[range(N * N), torch.max(index, dim=1)[0]] = torch.min(index, dim=1)[0]
+    all_indices[range(N * N), torch.min(index, dim=1)[0]] = swap
+
+    swapped_scores = scores[all_indices].squeeze()  # Each row is a swapped score
+    NDCG_swapped = vectorized_ndcg(labels, swapped_scores)
+    NDCG_changed = np.abs(NDCG_swapped - NDCG_OG).reshape((N, N))
+
+    delta = np.abs(NDCG_changed - 1)
+    loss = lambda_ij * delta
+    return loss.sum(dim=1).view(-1, 1)
+
+def calc_linearized_listwise_ranking_loss(last_layer, listwise_prefs, demo_embeds, criterion, confidence=1):
+    with torch.no_grad():
+        weights = last_layer.weight.data.squeeze()
+        demo_returns = confidence * torch.mv(demo_embeds, weights)
+
+        # # positivity prior
+        # if demo_returns[0] < 0.0:
+        #     return torch.Tensor([-float('Inf')])
+
+        outputs = demo_returns[pairwise_prefs.long()]
+        labels = torch.ones(len(pairwise_prefs)).long().to(device)
+
+        return -criterion(outputs, labels)
+
+def mcmc_map_search(reward_net, preferences, demo_embeds, num_steps, step_size, weight_output_filename, device, pairwise=True):
     last_layer = reward_net.trex
 
     writer = open(weight_output_filename,'w')
@@ -62,7 +117,11 @@ def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_siz
         linear.div_(torch.from_numpy(l2_norm).float().to(device))
 
     loglik_loss = nn.CrossEntropyLoss(reduction='sum')
-    starting_loglik = calc_linearized_pairwise_ranking_loss(last_layer, pairwise_prefs, demo_embeds, loglik_loss)
+    starting_loglik = 0
+    if pairwise:
+        starting_loglik = calc_linearized_pairwise_ranking_loss(last_layer, preferences, demo_embeds, loglik_loss)
+    else:
+        starting_loglik = calc_linearized_listwise_ranking_loss(last_layer, preferences, demo_embeds, loglik_loss)
 
     map_loglik, cur_loglik = starting_loglik, starting_loglik
     map_reward, cur_reward = copy.deepcopy(reward_net.trex), copy.deepcopy(reward_net.trex)
@@ -83,7 +142,7 @@ def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_siz
             for param in proposal_reward.parameters():
                 param.div_(torch.from_numpy(l2_norm).float().to(device))
 
-        prop_loglik = calc_linearized_pairwise_ranking_loss(proposal_reward, pairwise_prefs, demo_embeds, loglik_loss)
+        prop_loglik = calc_linearized_pairwise_ranking_loss(proposal_reward, preferences, demo_embeds, loglik_loss)
         if prop_loglik > cur_loglik:
             accept_cnt += 1
             cur_reward = copy.deepcopy(proposal_reward)
@@ -147,10 +206,17 @@ if __name__ == '__main__':
             "type": str,
             "help": "where to save the network with mcmc estimate of final layer"
         },
+        "listwise" : {
+            "type": int,
+            "default": 0,
+            "help": "select integer N for learning on N-wise preferences. anything below 2 results in pairwise."
+        },
         **gen_demos.parser_conf
     }
     p = utils.define_cl_parser(parser_conf)
     args = p.parse_args()
+
+    pairwise = True if args.listwise <= 2 else False
 
     device = utils.torch_device()
 
@@ -182,18 +248,36 @@ if __name__ == '__main__':
     # Get the summed feature embeddings
     demo_embed = generate_feature_embeddings(demonstrations, reward_net)
 
-    ## Create pairwise preferences (as in old codebase)
+    # prepare data for pairwise
     pairwise_prefs = []
-    for i in range(len(demonstrations)):
-        for j in range(i+1, len(demonstrations)):
-            if sorted_returns[i] < sorted_returns[j]:
-                pairwise_prefs.append((i,j))
-            else: # they are equal
-                print("using equal prefs", i, j, sorted_returns[i], sorted_returns[j])
-    pairwise_prefs = torch.Tensor(pairwise_prefs)
+    listwise_prefs = []
+    if pairwise:
+        ## Create pairwise preferences (as in old codebase)
+        for i in range(len(demonstrations)):
+            for j in range(i+1, len(demonstrations)):
+                if sorted_returns[i] < sorted_returns[j]:
+                    pairwise_prefs.append((i,j))
+                else: # they are equal
+                    print("using equal prefs", i, j, sorted_returns[i], sorted_returns[j])
+        pairwise_prefs = torch.Tensor(pairwise_prefs)
+    # prepare listwise learning data
+    else:
+        for i in range(len(demonstrations)):
+            # randomly select args.listwise number of preferences to comprise list
+            selection = random.sample(range(i, len(demonstrations)), args.listwise)
+            # sort selected preferences based on their returns
+            sel_returns = [sorted_returns[j] for j in selection]
+            sorted_sel = [idx for _, idx in sorted(zip(sel_returns, selection))]
+            # add new list of preferences to dataset
+            listwise_prefs.append(sorted_sel)
+        listwise_prefs = torch.Tensor(listwise_prefs)
+
 
     step_size, num_mcmc_steps = 5e-3, int(2e5)
-    mcmc_map = mcmc_map_search(reward_net, pairwise_prefs, demo_embed, num_mcmc_steps, step_size, args.weight_output_path, device)
+    if pairwise:
+        mcmc_map = mcmc_map_search(reward_net, pairwise_prefs, demo_embed, num_mcmc_steps, step_size, args.weight_output_path, device)
+    else:
+        mcmc_map = mcmc_map_search(reward_net, listwise_prefs, demo_embed, num_mcmc_steps, step_size, args.weight_output_path, device)
 
     reward_net = RewardNetwork(args.encoding_dim, n_actions, device).to(device)
     reward_net.load_state_dict(pretrained)
