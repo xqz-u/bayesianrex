@@ -84,7 +84,7 @@ def eval_checkpoint(checkpointfile, env_name, num_episodes, conf):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description=None)
-    parser.add_argument('--seed', default=1234, help="random seed for experiments")
+    parser.add_argument('--seed', default=42, type=int, help="random seed for experiments")
     parser.add_argument('--env_name', default='', help='Select the environment name to run, i.e. pong')
     parser.add_argument('--checkpointpath', default='', help='path to checkpoint to run eval on')
     parser.add_argument('--num_episodes', default = 30, type=int, help='number of rollouts')
