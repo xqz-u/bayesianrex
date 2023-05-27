@@ -2,7 +2,7 @@ import functools as ft
 import logging
 import time
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
-from typing import Callable, List, Union, Any
+from typing import Any, Callable, List, Union
 
 import numpy as np
 import torch
@@ -12,6 +12,8 @@ def torch_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+# NOTE unsafe in python because no tail recursion optimization, but in this
+# project this is used with shallow structures only
 def tensorify(array: List[np.ndarray]) -> List[torch.Tensor]:
     if isinstance(array, np.ndarray):
         return torch.from_numpy(array)

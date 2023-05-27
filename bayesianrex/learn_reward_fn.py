@@ -34,13 +34,15 @@ def learn_reward_fn(
             optimizer.zero_grad()
             # squeeze out batch dimension due to DataLoader
             states, actions, times = [
-                tuple(map(lambda t: t.squeeze().to(device), dp)) for dp in datapoint[:3]
+                tuple(map(lambda t: t.squeeze(0).to(device), dp))
+                for dp in datapoint[:3]
             ]
+            label = datapoint[3].squeeze(0).to(device)
             # NOTE `abs_returns_sum` used only for logging
             returns_, abs_returns_sum, *info = reward_net(*states)
             loss = 0.0
             if "trex" in loss_name:
-                loss += losses.trex_loss(returns_, datapoint[3].long().to(device))
+                loss += losses.trex_loss(returns_, label)
             if "ss" in loss_name:
                 loss += losses.self_supervised_losses(
                     reward_net, states, actions, times, info
@@ -49,7 +51,7 @@ def learn_reward_fn(
             optimizer.step()
             cum_loss += loss.item()
             cum_ret += returns_
-            cum_abs_ret += abs_returns_sum
+            cum_abs_ret += abs_returns_sum.item()
             logger.debug(
                 "return %.2f abs_return %.2f loss %.2f",
                 returns_,
@@ -60,8 +62,8 @@ def learn_reward_fn(
                 return_i, return_j = cum_ret.squeeze()
                 info = {
                     "cum_loss": cum_loss,
-                    "cum_return_i": return_i,
-                    "cum_return_j": return_j,
+                    "cum_return_i": return_i.item(),
+                    "cum_return_j": return_j.item(),
                     "cum_abs_return_both": cum_abs_ret,
                 }
                 logger.info("\n%s", pformat({**info, **{"epoch": epoch, "step": i}}))
@@ -76,12 +78,13 @@ def main(args: Namespace):
     train_idxs_path, trj_path = args.train_data_path, args.trajectories_path
     can_load = not (train_idxs_path is None or trj_path is None)
     if can_load:
-        train_data, _ = gen_demos.load_train_data(trj_path, train_idxs_path)
+        train_data, *_ = gen_demos.load_train_data(trj_path, train_idxs_path)
+        # train_data, train_idxs, trajectories = gen_demos.load_train_data(
+        #     trj_path, train_idxs_path
+        # )
     else:
-        train_data, _ = gen_demos.main(args)
+        train_data, *_ = gen_demos.main(args)
     train_loader = make_demonstrations_loader(train_data)
-    exit(0)
-
     n_actions = environments.create_atari_env(
         constants.envs_id_mapper.get(args.env)
     ).action_space.n
@@ -161,8 +164,8 @@ if __name__ == "__main__":
     p = utils.define_cl_parser(parser_conf)
     args = p.parse_args()
 
-    # args.seed = 0
-    # # args.log_level = 1
+    args.seed = 0
+    # args.log_level = 1
     # # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
     # args.checkpoints_dir = config.DEMONSTRATIONS_DIR.parent / "demonstrators_tiny"
     # args.n_traj = 1000

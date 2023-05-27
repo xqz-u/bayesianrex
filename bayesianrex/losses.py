@@ -18,9 +18,12 @@ def forward_dynamics_loss(
     reward_net: RewardNetwork, mu: T, actions: T, fwd_dynamics_distance: int = 5
 ) -> T:
     num_states = len(actions)
-    actions_onehot = torch.zeros((num_states, reward_net.action_dims)).to(reward_net.device)
+    # one-hot encoding the actions like this makes sure the right dimensionality
+    # is preserved even if some action was never performed in the episode
+    actions_onehot = torch.zeros((num_states, reward_net.action_dims))
     actions_onehot[torch.arange(actions_onehot.size(0)), actions] = 1
-    
+    actions_onehot = actions_onehot.to(reward_net.device)
+
     # dropping last state/action
     next_state_encoding = reward_net.forward_dynamics(
         mu[:-fwd_dynamics_distance], actions_onehot[:-fwd_dynamics_distance]
