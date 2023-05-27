@@ -49,8 +49,10 @@ def calc_linearized_pairwise_ranking_loss(last_layer, pairwise_prefs, demo_embed
 
         return -criterion(outputs, labels)
 
-def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_size, device):
+def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_size, weight_output_filename, device):
     last_layer = reward_net.trex
+
+    writer = open(weight_output_filename,'w')
 
     with torch.no_grad():
         linear = last_layer.weight.data
@@ -104,11 +106,27 @@ def mcmc_map_search(reward_net, pairwise_prefs, demo_embeds, num_steps, step_siz
             else:
                 #reject and stick with cur_reward
                 reject_cnt += 1
+        
+        write_weights_likelihood(cur_reward, cur_loglik, writer)
 
     print("num rejects", reject_cnt)
     print("num accepts", accept_cnt)
+    writer.close()
     return map_reward
 
+def write_weights_likelihood(last_layer, loglik, file_writer):
+    #convert last layer to numpy array
+    np_weights = get_weight_vector(last_layer)
+    for w in np_weights:
+        file_writer.write(str(w)+",")
+    file_writer.write(str(loglik.item()) + "\n")
+
+def get_weight_vector(last_layer):
+    '''take fc2 layer and return numpy array of weights and bias'''
+    linear = last_layer.weight.data
+    with torch.no_grad():
+        weights = linear.squeeze().cpu().numpy()
+    return weights
 
 if __name__ == '__main__':
     parser_conf = {
@@ -120,6 +138,14 @@ if __name__ == '__main__':
             "type": int,
             "default": 64,
             "help": "dimension of latent space"
+        },
+        "weight_output_path" : {
+            "type": str,
+            "help": "where to save the mcmc chain"
+        },
+        "mcmc_net_output_path" : {
+            "type": str,
+            "help": "where to save the network with mcmc estimate of final layer"
         },
         **gen_demos.parser_conf
     }
@@ -167,13 +193,13 @@ if __name__ == '__main__':
     pairwise_prefs = torch.Tensor(pairwise_prefs)
 
     step_size, num_mcmc_steps = 5e-3, int(2e5)
-    mcmc_map = mcmc_map_search(reward_net, pairwise_prefs, demo_embed, num_mcmc_steps, step_size, device)
+    mcmc_map = mcmc_map_search(reward_net, pairwise_prefs, demo_embed, num_mcmc_steps, step_size, args.weight_output_path, device)
 
     reward_net = RewardNetwork(args.encoding_dim, n_actions, device).to(device)
     reward_net.load_state_dict(pretrained)
     reward_net.trex = mcmc_map
 
-    torch.save(reward_net.state_dict(), '../mcmc_net.params')
+    torch.save(reward_net.state_dict(), args.mcmc_net_output_path)
     print('Succesfully saved MAP estimate')
 
     print_traj_returns(reward_net, demonstrations)

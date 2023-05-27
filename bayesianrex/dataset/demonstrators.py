@@ -7,7 +7,7 @@ import bayesianrex.environments as environments
 import wandb
 import yaml
 from bayesianrex import config, constants, utils
-from bayesianrex.dataset.wrapper import CustomRewardWrapper
+from bayesianrex.dataset.wrapper import CustomMeanRewardWrapper, CustomMAPRewardWrapper
 from bayesianrex.environments import create_atari_env
 from bayesianrex.networks import RewardNetwork
 from stable_baselines3 import PPO
@@ -48,9 +48,13 @@ def learn_demonstrator(args: Namespace):
             constants.envs_id_mapper.get(args.env)
         ).action_space.n
         reward_net = RewardNetwork(args.encoding_dims, n_actions, device).to(device)
+        reward_net.trex = torch.nn.Linear(args.encoding_dims, 1, bias=False)
         checkpoint = torch.load(args.reward_net_location)
         reward_net.load_state_dict(checkpoint)
-        env = CustomRewardWrapper(env, reward_net)
+        if args.mean:
+            env = CustomMeanRewardWrapper(env, reward_net, args.chain_path, args.encoding_dims, device)
+        else:
+            env = CustomMAPRewardWrapper(env, reward_net)
     # sometimes early into training there are numerical instability issues
     env = VecCheckNan(env, raise_exception=True)
 
@@ -161,6 +165,15 @@ if __name__ == "__main__":
             "type": int,
             "default": constants.reward_net_latent_space,
             "help": "encoding_dim of the model",
+        },
+        "chain_path" : {
+            "type": str,
+            "help": "where to find mcmc chain file for mean estimate"
+        },
+        "mean" : {
+            "action": "store_true",
+            "default": False,
+            "help": "use flag to use the mean estimate of mcmc, otherwise use map"
         },
         **constants.wandb_cl_parser,
     }
