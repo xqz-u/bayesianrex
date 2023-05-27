@@ -126,6 +126,8 @@ def main(args: Namespace):
     )
 
     savepath = args.reward_model_save_path
+    if savepath is None:
+        savepath = config.ASSETS_DIR / f"reward_model_{args.env}.pth"
     logger.info("Saving learned reward function weights to %s", savepath)
     torch.save(reward_net.state_dict(), savepath)
     logger.info("Done")
@@ -150,7 +152,6 @@ if __name__ == "__main__":
         },
         "reward-model-save-path": {
             "type": Path,
-            "default": config.ASSETS_DIR / "reward_model_breakout.pth",
             "help": "path where to save the trained reward model",
         },
         "log-frequency": {

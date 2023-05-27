@@ -1,16 +1,15 @@
 import logging
 import multiprocessing as mp
 from argparse import Namespace
-from pathlib import Path
 from pprint import pformat
 
+import bayesianrex.environments as environments
 import wandb
 import yaml
-import bayesianrex.environments as environments
 from bayesianrex import config, constants, utils
+from bayesianrex.dataset.wrapper import CustomRewardWrapper
 from bayesianrex.environments import create_atari_env
 from bayesianrex.networks import RewardNetwork
-from bayesianrex.wrapper import CustomRewardWrapper
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
@@ -42,7 +41,7 @@ def learn_demonstrator(args: Namespace):
     )
     # TODO: test Custom Reward wrapper
     if args.Custom_Reward:
-        device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+        device = torch.device("cuda" if torch.cuda.is_available else "cpu")
         n_actions = environments.create_atari_env(
             constants.envs_id_mapper.get(args.env)
         ).action_space.n
@@ -128,7 +127,12 @@ if __name__ == "__main__":
     np.seterr(all="raise")
 
     parser = {
-        "env": {"type": str, "default": "breakout", "help": "environment name"},
+        "env": {
+            "type": str,
+            "choices": tuple(constants.envs_id_mapper),
+            "default": "breakout",
+            "help": "environment name",
+        },
         "seed": {"type": int, "help": "RNG seed"},
         "n-envs": {"type": int, "help": "number of environments to run in parallel"},
         "save-freq": {
@@ -141,9 +145,21 @@ if __name__ == "__main__":
             "action": "store_true",
             "help": "record videos of the agent while training",
         },
-        "Custom_Reward" : {"type": bool, "default": False, "help": "whether to use learned reward function"},
-        "reward_net_location" : {"type": str, "default": "", "help": "location of trained reward net checkpoint"},
-        "encoding_dims" : {"type": int, "default": constants.reward_net_latent_space, "help": "encoding_dim of the model"},
+        "Custom_Reward": {
+            "type": bool,
+            "default": False,
+            "help": "whether to use learned reward function",
+        },
+        "reward_net_location": {
+            "type": str,
+            "default": "",
+            "help": "location of trained reward net checkpoint",
+        },
+        "encoding_dims": {
+            "type": int,
+            "default": constants.reward_net_latent_space,
+            "help": "encoding_dim of the model",
+        },
         **constants.wandb_cl_parser,
     }
 

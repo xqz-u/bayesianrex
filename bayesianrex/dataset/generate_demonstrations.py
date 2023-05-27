@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 
 import joblib
 import numpy as np
-from bayesianrex import constants, utils
+from bayesianrex import config, constants, utils
 from bayesianrex.environments import create_hidden_lives_atari_env
 from stable_baselines3 import PPO
 from stable_baselines3.common.type_aliases import GymEnv
@@ -41,6 +41,7 @@ parser_conf = {
     },
     "env": {
         "type": str,
+        "choices": tuple(constants.envs_id_mapper),
         "default": "breakout",
         "help": (
             """name of Atari game to generate demonstrations (should be"""
