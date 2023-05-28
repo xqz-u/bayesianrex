@@ -1,7 +1,6 @@
 import logging
 from typing import Optional
 
-import gymnasium as gym
 import numpy as np
 import torch
 from gymnasium.wrappers import TransformObservation
@@ -104,7 +103,8 @@ class MAPRewardWrapper(VecEnvWrapper):
         super().__init__(venv=venv)
         self.reward_model = reward_model
         # NOTE necessary to avoid reparameterization trick in
-        # RewardNetwork.cum_return, as in original code
+        # RewardNetwork.cum_return(), as in original code (EmbeddingNet of
+        # custom_reward_wrapper.py in baselines)
         self.reward_model.eval()
 
     def reset(self) -> VecEnvObs:
@@ -112,16 +112,24 @@ class MAPRewardWrapper(VecEnvWrapper):
 
     def step_wait(self) -> VecEnvStepReturn:
         obs, reward, done, info = self.venv.step_wait()
-        reward = self.reward_model.cum_return(torch.Tensor(obs))[0].detach().numpy()
+        obs = torch.Tensor(obs).to(self.reward_model.device)
+        reward = self.reward_model.cum_return(obs)[0].detach().numpy()
         return (obs, reward[..., None], done, info)
 
 
-class MeanRewardWrapper(gym.Wrapper):
-    def __init__(self, env, reward_net, chain_path, embedding_dim, device):
-        super().__init__(env)
+class MeanRewardWrapper(VecEnvWrapper):
+    def __init__(
+        self,
+        env: VecEnv,
+        reward_model: RewardNetwork,
+        chain_path,
+        embedding_dim,
+        device,
+    ):
+        super().__init__(venv=venv)
         self.device = device
         self.env = env
-        self.reward_net = reward_net
+        self.reward_net = reward_model
 
         self.rew_rms = RunningMeanStd(shape=())
         self.epsilon = 1e-8
