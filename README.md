@@ -22,11 +22,6 @@ We reproduce the setup described by Brown et al. ([2019](https://arxiv.org/pdf/1
 Atari games using default hyperparameters found in [rl-baselines3-zoo](https://github.com/DLR-RM/rl-baselines3-zoo/blob/master/hyperparams/ppo.yml) (`atari` section). We take ~25 checkpoints during training, and use them to generate 
 trajectories for Inverse Reinforcement Learning (IRL) from preferences.
 
-Pretrained checkpoints for some Atari games are available at **<ins>TODO pretrained ckpts download link</ins>**. These 
-demonstrators were trained for **<ins>number of hours</ins>** on a **<ins>GPU model</ins>** GPU. The corresponding learning 
-curves can be seen at **<ins>TODO wandb link to learning curves??</ins>** for comparison with standard ones from 
-[Stable Baselines' Zoo](https://wandb.ai/openrlbenchmark/sb3). 
-
 To train a PPO demonstrator on the default game Breakout (pass the `-h` flag to print all possible options):
 ```sh
 python -m bayesianrex.train_rl_agent

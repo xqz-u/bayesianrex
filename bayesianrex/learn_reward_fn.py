@@ -112,8 +112,6 @@ def main(args: Namespace):
     reward_net = make_reward_network(args.env, args.encoding_dims, device).to(device)
     optimizer = Adam(reward_net.parameters(), **constants.reward_net_hparams)
 
-    # FIXME after training has started for a while, C-c is not captured
-    # TODO capture SIGTERM/KILL too to die gracefully (relevant for wandb)
     try:
         run = wandb.init(
             entity=args.wandb_entity,
