@@ -1,13 +1,7 @@
-# import matplotlib.pylab as plt
 import argparse
 import multiprocessing as mp
 import os
-import pickle
-import random
-import sys
-import time
 
-import gym
 import numpy as np
 import torch
 import wandb
@@ -31,9 +25,7 @@ def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
 
     """
     env_id = constants.envs_id_mapper.get(env_name)
-    env_type = "atari"
 
-    stochastic = True
     conf["env_args"] = {"n_envs": args.n_envs or mp.cpu_count(), "seed": args.seed}
 
     env = create_atari_env(env_id, **conf["env_args"], vec_env_cls=SubprocVecEnv)
@@ -47,7 +39,6 @@ def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
     episode_count = num_episodes
     for i in range(episode_count):
         done = False
-        traj = []
         r = 0
 
         ob = env.reset()
@@ -69,11 +60,8 @@ def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
         {"avg_reward": np.mean(learning_returns), "std": np.std(learning_returns)}
     )
     env.close()
-    # tf.reset_default_graph()
 
     return learning_returns
-
-    # return([np.max(learning_returns), np.min(learning_returns), np.mean(learning_returns)])
 
 
 def eval_checkpoint(checkpointfile, env_name, num_episodes, conf):
