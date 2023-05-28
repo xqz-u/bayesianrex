@@ -22,22 +22,50 @@ device = utils.torch_device()
 
 
 def generate_feature_embeddings(traj_states: List[T], reward_net: RewardNetwork) -> T:
-    # take the sum of embeddings for each state in a trajectory
+    """
+    Compute embeddings of trajectory states using the reward network 
+    for each state (stack of frames) in a trajectory.
+
+    :param traj_states: list of trajectories (list-type containing image-frame tensors)
+    :param reward_net: a RewardNetwork network
+    :return: tensor of embeddings for trajectory states computed by the network
+    """
+
+    # set up embeddings, no bias used
     feature_cnts = torch.zeros(
         len(traj_states), reward_net.trex.in_features, device=device
-    )  # no bias
+    ) 
+
     for i, traj in enumerate(traj_states):
         traj = traj.to(device)
-        feature_cnts[i, :] = reward_net.trajectory_embedding(traj, sum_=True)
+        feature_cnts[i, :] = reward_net.trajectory_embedding(traj, sum_=True) # sum over frames
+
     return feature_cnts
 
 
 def predict_traj_return(reward_net: RewardNetwork, traj: T) -> float:
+    """
+    Compute the cumulative return over trajectory states with a reward_net.
+    This function is mainly used with print_traj_returns to 
+    print out values, so the output is rounded to 2 significant digits.
+
+    :param reward_net: a RewardNetwork network
+    :param traj: single trajectory (list-type containing image-frame tensors)
+    :return: rounded cumulative reward of trajectory
+    """
     return round(reward_net.cum_return(traj.to(device))[0].item(), 2)
 
 
 # print out predicted cumulative returns and actual returns
 def print_traj_returns(reward_net: RewardNetwork, traj_states: List[T], returns_: T):
+    """
+    Compute the cumulative return over trajectory states with a reward_net and print it, 
+    alongside the returns computed by the real reward function.
+
+    :param reward_net: a RewardNetwork network
+    :param traj_states: trajectories (list-type containing image-frame tensors)
+    :param returns_: tensor containing the cumulative returns of real reward function
+    """
     with torch.no_grad():
         pred_returns = [predict_traj_return(reward_net, traj) for traj in traj_states]
     for i, (estimated_ret, actual_ret) in enumerate(zip(pred_returns, returns_)):
@@ -45,26 +73,42 @@ def print_traj_returns(reward_net: RewardNetwork, traj_states: List[T], returns_
 
 
 def linearized_pairwise_ranking_loss(
-    layer: nn.Module, pairwise_prefs, states_embeddings, confidence: int = 1
-) -> T:
+    layer: nn.Module, pairwise_prefs, states_embeddings, confidence: int = 1) -> T:
+    """
+    Training loss of the MCMC-trained linearized neural net using pairwise ranking loss.
+    The pairwise preferences are of the sort [(i,j),...] where trajectory j is preferred over i.
+    
+    :param layer: Linear neural network layer being trained
+    :param pairwise_prefs: true trajectory pairwise preferences 
+    :param states_embeddings: stacked embeddings of trajectory states 
+    :param confidence: confidence in preference labels (value beta in eq 4,6) 
+    :return:
+
+    """
     with torch.no_grad():
         weights = layer.weight.squeeze()
         # return as linear combination of state embeddings
         predicted_returns = confidence * torch.mv(states_embeddings, weights)
 
-        # # positivity prior
+        # # positivity prior from eq 10 from paper
         # if predicted_returns[0] < 0.0:
         #     return torch.Tensor([-float('Inf')])
 
-        # pick the returns of the trajectories for which preference information
-        # are available
+        # pick the returns of the trajectories for available preference information
         outputs = predicted_returns[pairwise_prefs]
         labels = torch.ones(len(pairwise_prefs), dtype=int, device=device)
+
         # eq. 6 in the B-Rex paper
         return -F.cross_entropy(outputs, labels, reduction="sum")
 
 
 def inplace_MCMC_proposal(layer: nn.Module, mcmc_step_size: float):
+    """
+    Performs an in-place Markov Chain Monte Carlo (MCMC) proposal for a neural network layer.
+
+    :param layer: `nn.Module` class instance (e.g. neural network layer)
+    :param mcmc_step_size: The step size for the MCMC proposal_reward
+    """
     with torch.no_grad():
         # layer.parameters() returns the pointers, so modifications are in-place
         for param in layer.parameters():
@@ -80,6 +124,20 @@ def MCMC_MAP_search(
     mcmc_step_size: float,
     mcmc_weight_file: Path,
 ) -> nn.Linear:
+    """
+    Performs a MCMC search (Metropolis-Hastings) to find MAP reward function.
+    The pairwise preferences are of the sort [(i,j),...] where trajectory j is preferred over i.
+
+    :param trex_layer: initial reward function as an instance of `nn.Linear`
+    :param pairwise_prefs: list of pairwise preferences
+    :param states_embeddings: embeddings of the states of trajectories
+    :param mcmc_steps: number of MCMC steps to perform
+    :param mcmc_step_size: step size for the MCMC proposal
+    :param mcmc_weight_file: file path to write the MCMC chain weights
+
+    :return: The MAP reward function as an instance of `nn.Linear`.
+    """
+
     # initialize the MAP reward function as the current proposal, together with
     # its likelihood
     map_reward, cur_reward = deepcopy(trex_layer), deepcopy(trex_layer)
@@ -101,6 +159,7 @@ def MCMC_MAP_search(
         prop_loglik = linearized_pairwise_ranking_loss(
             proposal_reward, pairwise_prefs, states_embeddings
         )
+
         if prop_loglik > cur_loglik:
             logger.debug(
                 "Step %d: found better proposal, likelihood %.2f -> %.2f",
@@ -136,11 +195,19 @@ def MCMC_MAP_search(
     writer.close()
     logger.info("Wrote MCMC chain to %s", mcmc_weight_file)
     logger.info("# rejects: %d accepts: %d", reject_cnt, accept_cnt)
+
     return map_reward
 
 
 # TODO saving in binary format makes more sense, the text file weights 256MB...
 def write_weights_likelihood(layer: nn.Module, loglik: T, writer: TextIOWrapper):
+    """
+    Write weights to text file
+
+    :param layer: nn.Module instance of reward function network
+    :param loglik: the log likelihood associated with layer
+    :param writer: text-writer helper (TextIOWrapper instance)
+    """
     # convert last layer to numpy array
     with torch.no_grad():
         weights = layer.weight.cpu().numpy().squeeze()
@@ -151,6 +218,13 @@ def write_weights_likelihood(layer: nn.Module, loglik: T, writer: TextIOWrapper)
 
 
 def prepare_linear_comb_network(args: Namespace) -> RewardNetwork:
+    """
+    Load pretrained reward network.
+
+    :param args: namespace object including details about the network
+    :param writer: text-writer helper (TextIOWrapper instance)
+    :return: pretrained reward network
+    """
     encoding_dims = args.encoding_dims
     # load pretrained reward model
     reward_net = load_reward_network(
@@ -159,36 +233,65 @@ def prepare_linear_comb_network(args: Namespace) -> RewardNetwork:
         encoding_dims=encoding_dims,
         device=device,
     )
+
     logger.info("Initialize trex layer and unset all requires_grad")
     # re-initialize last layer
     reward_net.trex = nn.Linear(encoding_dims, 1, bias=False)
     logger.info(
         "Reward is linear combination of %d features", reward_net.trex.in_features
     )
+
     # freeze all parameters
     for param in reward_net.parameters():
         param.requires_grad = False
+
     return reward_net.to(device)
 
 
-# create pairwise preferences as in old codebase
 def triangular_preferences(returns_: T) -> T:
+    """
+    Create pairwise preferences as in old bayesianrex codebase
+    
+    :params returns_: true returns of trajectories
+    :return: Pairwise preferences of the sort [(i,j),...] where 
+             trajectory j is preferred over i.
+    """
     pairwise_prefs = []
+    # NOTE assume that returns are sorted in increasing order
     for i in range(len(returns_)):
         for j in range(i + 1, len(returns_)):
             return_i, return_j = returns_[i], returns_[j]
             if return_i < return_j:
                 pairwise_prefs.append((i, j))
-            # they are equal NOTE assume that returns are sorted in increasing
-            # order
-            else:
+            else: # skip if equal preferences
                 log_args = (i, return_i, j, return_j)
                 logger.info("Skip equal preferences: %d %.2f, %d %.2f", *log_args)
+
     return torch.LongTensor(pairwise_prefs)
 
 
 def main(args: Namespace):
-    # NOTE might be called twice, but better than no time
+    """
+    Executes the main functionality of the program for training a reward model 
+    using MCMC and saving the MAP (Maximum A Posteriori) reward model.
+
+    Pipeline:
+        - Set the random seed if provided.
+        - Prepare and initialize a linear combination reward network.
+        - If `args.trajectories_path` is not provided, generate demonstrations using 
+          the checkpoints directory, environment, and other options.
+        - Convert demonstrations to tensors and split into states, actions, and rewards.
+        - Generate summed feature embeddings for the states using the reward network.
+        - Generate preference labels based on the true cumulative returns.
+        - Determine the MCMC chain path (where the parameters will be stored).
+        - Obtain the MAP reward function using MCMC_MAP_search.
+        - Save MAP reward model to file.
+        - Print out the returns of trajectories using the MAP reward model.
+
+    :params args: Namespace instance containing the command-line arguments and options.
+
+    """
+    # set seed in case it hasn't yet been
     if args.seed is not None:
         logger.info("`set_random_seed`, seed: %d", args.seed)
         set_random_seed(seed=args.seed)
@@ -299,10 +402,11 @@ if __name__ == "__main__":
     args = p.parse_args()
     utils.setup_root_logging(args.log_level)
 
-    args.pretrained_model_path = config.ASSETS_DIR / "reward_model_breakout.pth"
-    args.trajectories_path = (
-        config.TRAIN_DATA_DIR / "BreakoutNoFrameskip-v4" / "trajectories"
-    )
-    args.seed = 0
+    # testing params
+    # args.pretrained_model_path = config.ASSETS_DIR / "reward_model_breakout.pth"
+    # args.trajectories_path = (
+    #     config.TRAIN_DATA_DIR / "BreakoutNoFrameskip-v4" / "trajectories"
+    # )
+    # args.seed = 0
 
     main(args)
