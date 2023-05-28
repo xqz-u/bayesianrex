@@ -1,4 +1,4 @@
-# TIIIITTTTLLLLEEEEE
+# PLEASE UPDATE THE TITLE
 
 # Running the project
 
@@ -29,11 +29,10 @@ curves can be seen at **<ins>TODO wandb link to learning curves??</ins>** for co
 
 To train a PPO demonstrator on the default game Breakout (pass the `-h` flag to print all possible options):
 ```sh
-python -m bayesianrex.dataset.demonstrators
+python -m bayesianrex.train_rl_agent
 ```
 This will by default save Weighs&Biases and TensorBoard logs, checkpoints and final trained model in corresponding folders 
 under `assets/`. 
-It's possible to encounter an error here, which is that `self.env.reset(seed=seed, options=options)` does not take keyword argument `seed`. We do not know how to fix this error, except remove these arguments from the place where it is called (`YOUR-ENV/Lib/site-packages/gymnasium/core.py`, line 414). This fixed it for us, but not all of us encountered it, so hopefully you won't have to resort to this hacky fix. 
 
 ## Training the reward embedding model
 
@@ -63,8 +62,58 @@ python -m bayesianrex.learn_reward_fn --env breakout \
     --train-data-path assets/train_data/BreakoutNoFrameskip-v4/train_pairs.npz
 ```
 
-## Learning reward function posterior via MCMC <ins>TODO </ins>
+## Learning reward function posterior via B-REX MCMC
+```sh
+python -m bayesianrex.mcmc_reward_fn \
+	--pretrained-model-path assets/reward_model_breakout.pth 
+    --checkpoint-dir assets/demonstrators/BreakoutNoFrameskip-v4
+```
+The above command will run MCMC sampling over the T-Rex layer of the embedding model learned in the previous section 
+for the game Breakout, stored into `assets/reward_model_breakout.pth`. It will finish by saving the MCMC chain and 
+likelihoods into `assets/mcmc_chain_breakout.npz` and the MAP reward function into 
+`assets/reward_model_breakout_MAP.pth`; both filenames can be specified with the arguments `mcmc-chain-save-path` and 
+`map-model-save-path`, respectively.
 
-## Training with the learned reward function <ins>TODO </ins>
+In the command above, the preferences used to express the MCMC likelihood ratios during search are generated anew from 
+`checkpoint-dir`. Instead of passing this argument, you can pass `--trajectories-path <path-to-trajectories>` to give 
+pregenerated trajectories - make sure they are different than the ones used in the section **Training the reward 
+embedding model**. 
 
-## Evaluation with the ground truth reward function <ins>TODO </ins>
+## Training with the learned reward function
+To train  a PPO agent using the MAP reward function learned via MCMC:
+```sh
+python -m bayesianrex.train_rl_agent --custom-reward \
+	--reward-model-path assets/reward_model_breakout_MAP.pth
+    --env breakout
+```
+To train  a PPO agent using the mean reward function from the MCMC chain:
+```sh
+python -m bayesianrex.train_rl_agent --custom-reward \
+	--reward-model-path assets/reward_model_breakout_MAP.pth \
+    --mean --mcmc-chain-path assets/mcmc_chain_breakout.npz \
+    --env breakout
+```
+This will run the same training loop as the one used to generate the original demonstrators, but will replace the ground 
+truth reward function with the mean or MAP one for policy learning. This round of training will take longer than the one 
+with ground truth rewards, since the mean/MAP forward inference time is factored in. Checkpoints are saved by default 
+under `<assets_dir>/demonstrators/<env>_custom` folder, where `<assets_dir>` and `<env>` are respectively the name of the 
+passed `assets-dir` and `env` arguments. 
+
+## Evaluation with the ground truth reward function
+Finally, to evaluate all checkpointned PPO agents trained on a learned reward function, run:
+```sh
+python -m bayesianrex.evaluate_policy \
+	--checkpointpath assets/demonstrators/breakout_custom \
+    --eval_all
+```
+If `eval_all` is omitted and `checkpointpath` is a path to a valid PPO checkpoints e.g. 
+`assets/demonstrators/breakout_custom/PPO_400000_steps.zip`, only the given checkpoint is evaluated. 
+
+
+
+
+
+
+
+
+

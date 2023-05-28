@@ -1,10 +1,10 @@
 import logging
-import numpy as np
 from argparse import Namespace
 from copy import deepcopy
 from pathlib import Path
 from typing import List, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 from stable_baselines3.common.utils import set_random_seed
@@ -92,15 +92,12 @@ def linearized_pairwise_ranking_loss(
         weights = layer.weight.squeeze()
         # return as linear combination of state embeddings
         predicted_returns = confidence * torch.mv(states_embeddings, weights)
-
-        # # positivity prior from eq 10 from paper
-        # if predicted_returns[0] < 0.0:
-        #     return torch.Tensor([-float('Inf')])
-
+        # positivity prior from eq 10 from paper
+        if predicted_returns[0] < 0.0:
+            return torch.Tensor([-float("Inf")])
         # pick the returns of the trajectories for available preference information
         outputs = predicted_returns[pairwise_prefs]
         labels = torch.ones(len(pairwise_prefs), dtype=int, device=device)
-
         # eq. 6 in the B-Rex paper
         return -F.cross_entropy(outputs, labels, reduction="sum")
 
@@ -306,11 +303,7 @@ def main(args: Namespace):
     pairwise_prefs = triangular_preferences(returns_)
 
     map_reward_fn, mcmc_chain, mcmc_likelihoods = MCMC_MAP_search(
-        reward_net.trex,
-        pairwise_prefs,
-        states_embeddings,
-        int(2e5),
-        5e-3
+        reward_net.trex, pairwise_prefs, states_embeddings, int(2e5), 5e-3
     )
     mcmc_chain_path = (
         args.mcmc_chain_save_path or config.ASSETS_DIR / f"mcmc_chain_{args.env}.npz"
