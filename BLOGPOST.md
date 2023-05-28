@@ -33,7 +33,9 @@ In this section, we discuss the work of the authors, both on the theoretical (re
 
 The main work the authors build upon is **Trajectory Reward Extrapolation (T-REX)** (Brown et al. 2019). This inverse RL method uses pairwise rankings of demonstrations in order to learn policies. Thus, the reward function learning task is transformed into a binary classification problem (predicting which of the two policies is better). Thus, in this paper, Brown et al. propose **Bayesian Reward Extrapolation (Bayesian REX)**, an improved T-REX, which is not limited to only solving point estimates of the reward function, rather, it gives a probability distribution over a learnt reward function. A key contribution of the B-REX paper was making demonstration likelihoods tractable. A likelihood $P$ for a set of demonstration state-action pairs $(s,a)\in D$ under a reward function $R$ is defined by the following formula:
 
-$$ P(D|R) = \prod_{(s,a)\in D}\pi^{\beta}_{R}(a|s) = \prod_{(s,a)\in D} \frac{e^{\beta Q^{*}_{R}(s,a)}} {\sum_{b \in A} e^{\beta Q^{*}_{R}(s,b)}} $$
+```math
+P(D|R) = \prod_{(s,a)\in D}\pi^{\beta}_{R}(a|s) = \prod_{(s,a)\in D} \frac{e^{\beta Q^{*}_{R}(s,a)}} {\sum_{b \in A} e^{\beta Q^{*}_{R}(s,b)}}
+```
 
 This equation includes the optimal Q-values $Q^{*}_{R}(s,a)$ (which represent the `goodness' of a state-action pair under reward $R$) which would require solving the Markov Decision process (MDP) analytically or sufficiently approximating it, both of which are computationally prohibative on bigger MDPs. The paper instead builds a pairwise ranking likelihood function, where we approximate the total demonstration likelihood by the reward function's ability to distinguish the true pairwise order of the demonstrations:
 
