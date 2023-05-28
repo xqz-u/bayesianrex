@@ -37,7 +37,9 @@ $$ P(D|R) = \prod_{(s,a)\in D}\pi^{\beta}_{R}(a|s) = \prod_{(s,a)\in D} \frac{e^
 
 This equation includes the optimal Q-values $Q^{*}_{R}(s,a)$ (which represent the `goodness' of a state-action pair under reward $R$) which would require solving the Markov Decision process (MDP) analytically or sufficiently approximating it, both of which are computationally prohibative on bigger MDPs. The paper instead builds a pairwise ranking likelihood function, where we approximate the total demonstration likelihood by the reward function's ability to distinguish the true pairwise order of the demonstrations:
 
-$$ P(D,P|R_{\theta}) = \prod_{(i,j)\in D} \frac{e^{\beta R_{\theta}(\tau_i)}} {e^{\beta R_{\theta}(\tau_i)} + e^{\beta R_{\theta}(\tau_j)}} $$
+```math
+P(D,P|R_{\theta}) = \prod_{(i,j)\in D} \frac{e^{\beta R_{\theta}(\tau_i)}} {e^{\beta R_{\theta}(\tau_i)} + e^{\beta R_{\theta}(\tau_j)}}
+```
 
 where $R_{\theta}$ is a neural network that is trained to maximize this likelihood, $\tau_i$ and $\tau_j$ is a pair of trajectories sampled from the demonstrations and $\beta$ is the inverse temperature parameter that models the confidence in the preference label.
 
