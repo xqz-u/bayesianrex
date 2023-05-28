@@ -95,6 +95,7 @@ def list_checkpoints(folder: Path) -> List[Path]:
     :param folder: Path to checkpoint folder
     :return: List of paths to checkpoint zips
     """
+    assert folder is not None, f"You should pass a valid folder, got {folder}"
     checkpoints = list(folder.glob("PPO_*_steps.zip"))
     if not checkpoints:
         raise ValueError(f"{folder} does not contain valid PPO checkpoints")
@@ -123,9 +124,10 @@ def generate_trajectory_from_ckpt(
     for i in range(n_traj):
         if seed is not None:
             env.seed(seed + i)
-        obs, done = env.reset(), False
+        # account for case where we run multiple environments for 'done'
+        obs, done = env.reset(), np.array([False] * env.num_envs)
         ep_states, ep_actions, ep_rewards = [], [], []
-        while not done:
+        while not done.any():
             # NOTE pixel observations from Atari games are uint8, transform to
             # float for CNN processing
             ep_states.append((obs / 255.0).astype(np.float32))
@@ -373,7 +375,7 @@ def create_training_data(
 ) -> Tuple[TrainTrajectories, np.ndarray]:
     """
     Create training data for model training.
-    
+
     Note: assumes trajectories are sorted in *increasing* order of return
 
     :params trajectories: Raw trajectories obtained from demonstrations
