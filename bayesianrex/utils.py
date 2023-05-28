@@ -13,6 +13,11 @@ def torch_device() -> torch.device:
 # NOTE unsafe in python because no tail recursion optimization, but in this
 # project this is used with shallow structures only
 def tensorify(array: List[np.ndarray]) -> List[torch.Tensor]:
+    """ 
+    Change a list of np arrays to torch tensors 
+    :param array: List (list-type) of numpy arrays
+    :return: pytorch tensor
+    """
     if isinstance(array, np.ndarray):
         return torch.from_numpy(array)
     return list(map(tensorify, array))
@@ -78,6 +83,12 @@ def linear_schedule(initial_value: Union[float, str]) -> Callable[[float], float
 
 
 def adjust_ppo_schedules(ppo_args: dict):
+    """ 
+    Adjust the scheduler of the ppo agent during training
+    using a linear scheduler for learning rate.
+    :param ppo_args: set of arguments to train ppo agent
+    :return: new set of arguments to train ppo agent
+    """
     for k in ["learning_rate", "clip_range"]:
         if ppo_args.get(k, "").startswith("lin_"):
             init_val = float(ppo_args[k][4:])
