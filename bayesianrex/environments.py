@@ -142,10 +142,12 @@ class MAPRewardWrapper(VecEnvWrapper):
     def step_wait(self) -> VecEnvStepReturn:
         """Step through the environment and return env information"""
         obs, reward, done, info = self.venv.step_wait()
-        # reward embeddings were trained on float representation of pixels
-        model_obs = torch.Tensor(obs / 255.0).to(self.reward_model.device)
-        reward = self.reward_model.cum_return(model_obs)[0].detach().numpy()
-        return (obs, reward[..., None], done, info)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        obs = torch.Tensor(obs / 255.0).to(device)
+        self.reward_model = self.reward_model.to(device)
+        reward = self.reward_model.cum_return(obs)[0].detach().cpu().numpy()
+        obs = obs.detach().cpu().numpy()
+        return (obs, reward, done, info)
 
 
 class MeanRewardWrapper(MAPRewardWrapper):
