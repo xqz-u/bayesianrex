@@ -89,6 +89,12 @@ parser_conf = {
 
 
 def list_checkpoints(folder: Path) -> List[Path]:
+    """
+    Get all availible PPO checkpoints in path.
+
+    :param folder: Path to checkpoint folder
+    :return: List of paths to checkpoint zips
+    """
     checkpoints = list(folder.glob("PPO_*_steps.zip"))
     if not checkpoints:
         raise ValueError(f"{folder} does not contain valid PPO checkpoints")
@@ -244,6 +250,14 @@ def pack_idxs(
 def full_trajectories_idxs(
     trajectories: RawTrajectories, n_traj: int, rng: np.random.Generator
 ) -> np.ndarray:
+    """
+    Generate indexes for full trajectories given a set of raw trajectories.
+
+    :param trajectories: Raw trajectories obtained from demonstrations
+    :param n_traj: Number of full trajectories to generate indexes for
+    :param rng: Random number generator for sampling
+    :return: Indexes for the selected full trajectories
+    """
     assert n_traj > 0
     # pick n_traj trajectory indexes
     pairs, lens = sample_trajectory_pairs(trajectories[0], n_traj, sort=True)
@@ -253,8 +267,6 @@ def full_trajectories_idxs(
     return pack_idxs(pairs, lens, starts, steps)
 
 
-# NOTE when a short trajectory is paired with a long one, snippets can be
-# wildly discountuous with the old sampling strategy
 def snippet_trajectories_idxs(
     trajectories: RawTrajectories,
     n_snippets: int,
@@ -262,6 +274,19 @@ def snippet_trajectories_idxs(
     snippet_max_len: int,
     rng: np.random.Generator,
 ) -> np.ndarray:
+    """
+    Generate indexes for snippets of trajectories given a set of raw trajectories.
+
+    NOTE: When a short trajectory is paired with a long one, snippets can be
+    wildly discountuous with the old sampling strategy
+
+    :param trajectories: Raw trajectories obtained from demonstrations
+    :param n_snippets: Number of snippet trajectories to generate indexes for
+    :param snippet_min_len: Minimum length of each snippet
+    :param snippet_max_len: Maximum length of each snippet
+    :param rng: Random number generator for sampling
+    :return: Indexes for the selected snippet trajectories.
+    """
     assert n_snippets > 0
     # only sample from trajectories long enough
     states = [s for s in trajectories[0] if len(s) >= snippet_min_len]
@@ -288,6 +313,16 @@ def create_training_idxs(
     rng: np.random.Generator,
     snippet_len_bounds: Tuple[int],
 ) -> np.ndarray:
+    """
+    Create indexes for training data from raw trajectories.
+
+    :param trajectories: Raw trajectories obtained from demonstrations
+    :param n_traj: Number of full trajectories to include in the training data
+    :param n_snippets: Number of snippet trajectories to include in the training data
+    :param rng: Random number generator for sampling
+    :param snippet_len_bounds: Tuple specifying the minimum and maximum length of each snippet
+    :return: Indexes for the training data.
+    """
     stackable = []
     if n_traj > 0:
         full_idxs = full_trajectories_idxs(trajectories, n_traj, rng)
@@ -305,6 +340,13 @@ def create_training_idxs(
 def construct_training_data(
     trajectories: RawTrajectories, idxs: np.ndarray
 ) -> TrainTrajectories:
+    """
+    Construct training data from raw trajectories based on the given indexes.
+
+    :param: trajectories: Raw trajectories obtained from demonstrations
+    :param: idxs: Indexes specifying the segments of trajectories to use for training
+    :return: Training data consisting of states, actions, time steps, and labels
+    """
     states, actions, _ = trajectories
     train_states, train_actions, train_times = [], [], []
     start = time.time()
@@ -322,7 +364,6 @@ def construct_training_data(
     return train_states, train_actions, train_times, np.ones((len(idxs), 1), dtype=int)
 
 
-# NOTE assumes trajectories are sorted in *increasing* order of return
 def create_training_data(
     trajectories: RawTrajectories,
     n_traj: int,
@@ -330,6 +371,18 @@ def create_training_data(
     rng: np.random.Generator,
     snippet_len_bounds: Tuple[int],
 ) -> Tuple[TrainTrajectories, np.ndarray]:
+    """
+    Create training data for model training.
+    
+    Note: assumes trajectories are sorted in *increasing* order of return
+
+    :params trajectories: Raw trajectories obtained from demonstrations
+    :params n_traj: Number of full trajectories to include in the training data
+    :params n_snippets: Number of trajectory snippets to include in the training data
+    :params rng: Random number generator
+    :params snippet_len_bounds Lower and upper bounds for the length of trajectory snippets
+    :return: A tuple containing the training data and the indexes used for training.
+    """
     train_idxs = create_training_idxs(
         trajectories, n_traj, n_snippets, rng, snippet_len_bounds
     )
@@ -340,6 +393,12 @@ def create_training_data(
 
 
 def load_trajectories(path: Path) -> List[np.ndarray]:
+    """
+    Load trajectories from a file.
+
+    :param path: The path to the file containing the trajectories
+    :return: The loaded trajectories
+    """
     logger.info("Loading trajectories from %s", path)
     start = time.time()
     trajectories = joblib.load(path)
@@ -355,6 +414,12 @@ def load_trajectories(path: Path) -> List[np.ndarray]:
 def load_train_data(
     trajectories_path: Path, train_idxs_path: Path
 ) -> Tuple[TrainTrajectories, np.ndarray, RawTrajectories]:
+    """
+    Load train data from a file.
+
+    :param path: The path to the file containing the trajectories
+    :return: The loaded trajectories
+    """
     trajectories = load_trajectories(trajectories_path)
     # the array is saved under an autogenerated key by np.savez_compressed()
     train_idxs = np.load(train_idxs_path)["arr_0"]
@@ -362,6 +427,23 @@ def load_train_data(
 
 
 def main(args: Namespace) -> Tuple[TrainTrajectories, np.ndarray, RawTrajectories]:
+    """
+    Generate and save demonstrations by an agent
+
+    Pipeline:
+        - Set the random seed
+        - Create required directories
+        - If a trajectories path is provided, load the trajectories from the specified file
+        - Otherwise, generate demonstrations from the checkpoints directory using the specified arguments
+        - Save tje generated or loaded trajectories to file
+        - Create the training data and indices using the generated or loaded trajectories
+        - Save the training indices to file
+        - Return the training trajectories, training indices, and raw trajectories
+
+    :param args: The parsed command-line arguments
+    :return: A tuple containing the training trajectories, training indices, and raw trajectories.
+
+    """
     if args.seed is not None:
         logger.info("Calling sb3 `set_random_seed` with seed %d", args.seed)
         set_random_seed(args.seed, using_cuda=device.type != "cpu")

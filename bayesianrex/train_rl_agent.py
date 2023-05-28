@@ -30,6 +30,24 @@ logger = logging.getLogger(__name__)
 
 
 def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
+    """
+    Create and configure the environment for training or evaluation.
+
+    Pipeline:
+        - Edit the environment arguments based on the command-line arguments.
+        - Configure rewards
+            - If custom_reward is enabled, a Atari environment is created with hidden lives
+            - The reward model is loaded from the specified reward model path.
+            - Depending on the arguments, either the mean or MAP reward wrapper is applied.
+            - If custom_reward is not enabled, a regular Atari environment is created.
+        - If video recording is enabled, add a video recorder
+    
+    :param args:: The parsed command-line arguments.
+    :param conf: The configuration parameters for the environment.
+    :return: A tuple Tuple[VecEnv, str, Path] containing the created environment, 
+             the environment ID, and the checkpoint path for the environment.
+    """
+
     # adjust env_args
     conf["env_args"] = {"n_envs": args.n_envs or mp.cpu_count(), "seed": args.seed}
     env_id = constants.envs_id_mapper.get(args.env)
@@ -91,6 +109,18 @@ def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
 
 
 def learn_demonstrator(args: Namespace):
+    """
+    Train a demonstrator agent using sb3's PPO agent on an Atari environment.
+
+    Pipeline:
+        - Create directories and read environment details from config file
+        - Load/make the environment, environment ID, and checkpoint path
+        - Create a PPO agent with the provided environment and configuration
+        - Adjust hyperparameters (learning rate schedules etc)
+        - Train the agent!
+
+    :param args: The parsed command-line arguments.
+    """
     args.assets_dir.mkdir(parents=True, exist_ok=True)
 
     # parse default args from rl-baselines3-zoo for Atari envs

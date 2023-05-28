@@ -2,7 +2,6 @@ import logging
 import numpy as np
 from argparse import Namespace
 from copy import deepcopy
-from io import TextIOWrapper
 from pathlib import Path
 from typing import List, Tuple
 
@@ -208,7 +207,6 @@ def prepare_linear_comb_network(args: Namespace) -> RewardNetwork:
     Load pretrained reward network.
 
     :param args: namespace object including details about the network
-    :param writer: text-writer helper (TextIOWrapper instance)
     :return: pretrained reward network
     """
     encoding_dims = args.encoding_dims
