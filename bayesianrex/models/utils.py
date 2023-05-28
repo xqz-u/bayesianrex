@@ -23,7 +23,7 @@ def make_reward_network(
 def load_reward_network(model_path: Path, env: str, **kwargs) -> RewardNetwork:
     reward_net = make_reward_network(env, **kwargs)
     logger.info("Loading reward model params from %s", model_path)
-    reward_net.load_state_dict(
-        torch.load(model_path, map_location=kwargs.get("device"))
-    )
+    params = torch.load(model_path, map_location=kwargs.get("device"))
+    params.pop("trex.bias", None)
+    reward_net.load_state_dict(params)
     return reward_net

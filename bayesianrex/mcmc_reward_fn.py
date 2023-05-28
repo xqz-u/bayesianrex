@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 from argparse import Namespace
 from copy import deepcopy
 from io import TextIOWrapper
@@ -125,8 +126,7 @@ def MCMC_MAP_search(
     states_embeddings: T,
     mcmc_steps: int,
     mcmc_step_size: float,
-    mcmc_weight_file: Path,
-) -> nn.Linear:
+) -> Tuple[nn.Linear, np.ndarray, np.ndarray]:
     """
     Performs a MCMC search (Metropolis-Hastings) to find MAP reward function.
     The pairwise preferences are of the sort [(i,j),...] where trajectory j is preferred over i.
@@ -136,9 +136,8 @@ def MCMC_MAP_search(
     :param states_embeddings: embeddings of the states of trajectories
     :param mcmc_steps: number of MCMC steps to perform
     :param mcmc_step_size: step size for the MCMC proposal
-    :param mcmc_weight_file: file path to write the MCMC chain weights
 
-    :return: The MAP reward function as an instance of `nn.Linear`.
+    :return: The MAP reward function, the MCMC chain and the proposal likelihoods.
     """
 
     # initialize the MAP reward function as the current proposal, together with
@@ -150,11 +149,16 @@ def MCMC_MAP_search(
     logger.debug("Starting loglikelihood: %.2f", starting_loglik)
     map_loglik, cur_loglik = starting_loglik, starting_loglik
 
-    reject_cnt, accept_cnt, writer = 0, 0, open(mcmc_weight_file, "w")
+    mcmc_chain = np.zeros((mcmc_steps, trex_layer.in_features))
+    mcmc_likelihoods = np.zeros(mcmc_steps)
+    reject_cnt, accept_cnt = 0, 0
 
     for step in tqdm(range(mcmc_steps)):
-        # update the MCMC chain
-        write_weights_likelihood(cur_reward, cur_loglik, writer)
+        # update the MCMC chain and likelihoods
+        with torch.no_grad():
+            proposal_np = cur_reward.weight.cpu().numpy().squeeze()
+        mcmc_chain[step] = proposal_np
+        mcmc_likelihoods[step] = cur_loglik.item()
         # generate new proposal
         proposal_reward = deepcopy(cur_reward)
         inplace_MCMC_proposal(proposal_reward, mcmc_step_size)
@@ -195,29 +199,8 @@ def MCMC_MAP_search(
                 # reject and stick with current reward function proposal
                 reject_cnt += 1
 
-    writer.close()
-    logger.info("Wrote MCMC chain to %s", mcmc_weight_file)
     logger.info("# rejects: %d accepts: %d", reject_cnt, accept_cnt)
-
-    return map_reward
-
-
-# TODO saving in binary format makes more sense, the text file weights 256MB...
-def write_weights_likelihood(layer: nn.Module, loglik: T, writer: TextIOWrapper):
-    """
-    Write weights to text file
-
-    :param layer: nn.Module instance of reward function network
-    :param loglik: the log likelihood associated with layer
-    :param writer: text-writer helper (TextIOWrapper instance)
-    """
-    # convert last layer to numpy array
-    with torch.no_grad():
-        weights = layer.weight.cpu().numpy().squeeze()
-    # buffered by default
-    for w in weights:
-        writer.write(f"{w},")
-    writer.write(f"{loglik.item()}\n")
+    return map_reward, mcmc_chain, mcmc_likelihoods
 
 
 def prepare_linear_comb_network(args: Namespace) -> RewardNetwork:
@@ -324,17 +307,18 @@ def main(args: Namespace):
     returns_ = torch.Tensor([r.sum() for r in rewards])
     pairwise_prefs = triangular_preferences(returns_)
 
-    mcmc_chain_path = (
-        args.mcmc_chain_save_path or config.ASSETS_DIR / f"mcmc_chain_{args.env}.txt"
-    )
-    map_reward_fn = MCMC_MAP_search(
+    map_reward_fn, mcmc_chain, mcmc_likelihoods = MCMC_MAP_search(
         reward_net.trex,
         pairwise_prefs,
         states_embeddings,
         int(2e5),
-        5e-3,
-        mcmc_chain_path,
+        5e-3
     )
+    mcmc_chain_path = (
+        args.mcmc_chain_save_path or config.ASSETS_DIR / f"mcmc_chain_{args.env}.npz"
+    )
+    logger.info("Writing MCMC chain and likelihoods to %s", mcmc_chain_path)
+    np.savez_compressed(mcmc_chain_path, chain=mcmc_chain, likelihoods=mcmc_likelihoods)
 
     # saved MAP reward model resulting from MCMC
     reward_net_mcmc = load_reward_network(
@@ -344,7 +328,6 @@ def main(args: Namespace):
         device=device,
     ).to(device)
     reward_net_mcmc.trex = map_reward_fn
-
     map_model_path = (
         args.map_model_save_path
         or config.ASSETS_DIR / f"reward_model_{args.env}_MAP.pth"

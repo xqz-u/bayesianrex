@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -6,7 +7,6 @@ import torch
 from gymnasium.wrappers import TransformObservation
 from stable_baselines3.common import env_util
 from stable_baselines3.common.atari_wrappers import AtariWrapper
-from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.vec_env.base_vec_env import (
     VecEnv,
@@ -101,74 +101,43 @@ def create_hidden_lives_atari_env(
 class MAPRewardWrapper(VecEnvWrapper):
     def __init__(self, venv: VecEnv, reward_model: RewardNetwork):
         super().__init__(venv=venv)
-        self.reward_model = reward_model
         # NOTE necessary to avoid reparameterization trick in
         # RewardNetwork.cum_return(), as in original code (EmbeddingNet of
         # custom_reward_wrapper.py in baselines)
-        self.reward_model.eval()
+        self.reward_model = reward_model.eval()
 
     def reset(self) -> VecEnvObs:
         return self.venv.reset()
 
     def step_wait(self) -> VecEnvStepReturn:
         obs, reward, done, info = self.venv.step_wait()
-        obs = torch.Tensor(obs).to(self.reward_model.device)
-        reward = self.reward_model.cum_return(obs)[0].detach().numpy()
+        # reward embeddings were trained on float representation of pixels
+        model_obs = torch.Tensor(obs / 255.0).to(self.reward_model.device)
+        reward = self.reward_model.cum_return(model_obs)[0].detach().numpy()
         return (obs, reward[..., None], done, info)
 
 
-class MeanRewardWrapper(VecEnvWrapper):
-    def __init__(
-        self,
-        env: VecEnv,
-        reward_model: RewardNetwork,
-        chain_path,
-        embedding_dim,
-        device,
-    ):
-        super().__init__(venv=venv)
-        self.device = device
-        self.env = env
-        self.reward_net = reward_model
-
-        self.rew_rms = RunningMeanStd(shape=())
-        self.epsilon = 1e-8
-        self.cliprew = 10.0
-
-        # load the mean of the MCMC chain
-        burn = 5000
-        skip = 20
-        reader = open(chain_path)
-        data = []
-        for line in reader:
-            parsed = line.strip().split(",")
-            np_line = []
-            for s in parsed[:-1]:
-                np_line.append(float(s))
-            data.append(np_line)
-        data = np.array(data)
-
-        # get average across chain and use it as the last layer in the network
-        mean_weight = np.mean(data[burn::skip, :], axis=0)
-        self.reward_net.trex = nn.Linear(
-            embedding_dim, 1, bias=False
-        )  # last layer just outputs the scalar reward = w^T \phi(s)
-
-        new_linear = torch.from_numpy(mean_weight)
-        with torch.no_grad():
-            # unsqueeze since nn.Linear wants a 2-d tensor for weights
-            new_linear = new_linear.unsqueeze(0)
-            with torch.no_grad():
-                self.reward_net.trex.weight.data = new_linear.float().to(self.device)
-        self.reward_net.to(self.device)
-
-        self.rew_rms = RunningMeanStd(shape=())
-        self.epsilon = 1e-8
-        self.cliprew = 10.0
-
-    def step(self, action):
-        next_state, reward, done, truncated, info = self.env.step(action)
-        obs = torch.cat((torch.Tensor(self.env.state), torch.Tensor([action])))
-        custom_reward, _, _, _, _ = self.reward_model.cum_reward(obs)
-
-        return next_state, custom_reward.item(), done, truncated, info
+class MeanRewardWrapper(MAPRewardWrapper):
+    def __init__(self, venv: VecEnv, reward_model: RewardNetwork, chain_path: Path):
+        super().__init__(venv, reward_model)
+        # load MCMC data
+        mcmc_data = np.load(chain_path)
+        mcmc_chain = mcmc_data["chain"]
+        # last layer just outputs the scalar reward = w^T \phi(s)
+        self.reward_model.trex = nn.Linear(reward_model.trex.in_features, 1, bias=False)
+        # get average across (downsampled) chain and use it as the last layer in
+        # the network
+        burn, skip = int(5e3), 20
+        if len(mcmc_chain) >= burn + 100:
+            logger.info(
+                "No proposal burning/downsampling, chain size: %d", len(mcmc_chain)
+            )
+            burn, skip = 0, 1
+        mean_reward_fn = mcmc_chain[burn::skip].mean(0)
+        mean_reward_fn = (
+            torch.from_numpy(mean_reward_fn[None, ...])
+            .to(torch.float32)  # default torch dtype
+            .to(reward_model.device)
+        )
+        self.reward_model.trex.weight = nn.Parameter(mean_reward_fn)
+        logger.info("Succesfully set learned reward fn as mean of MCMC chain")

@@ -44,7 +44,7 @@ def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
         ckpt_path = args.assets_dir / "demonstrators" / f"{env_id}_custom"
         reward_model_path = args.reward_model_path
         assert reward_model_path is not None, "You must give a path to reward fn model"
-        device = device = utils.torch_device()
+        device = utils.torch_device()
         logger.info("Loading learned reward fn weights from %s", reward_model_path)
         reward_net = load_reward_network(reward_model_path, args.env, device=device)
         if args.mean:
@@ -53,9 +53,7 @@ def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
             logger.info(
                 "Using mean learned reward fn from MCMC chain at %s", chain_path
             )
-            env = MeanRewardWrapper(
-                env, reward_net, args.mcmc_chain_path, args.encoding_dims, device
-            )
+            env = MeanRewardWrapper(env, reward_net, args.mcmc_chain_path)
         else:
             logger.info("Using learned MAP reward fn")
             env = MAPRewardWrapper(env, reward_net)
@@ -179,11 +177,6 @@ if __name__ == "__main__":
         "reward-model-path": {
             "type": Path,
             "help": "location of agent trained with a learned reward fn",
-        },
-        "encoding-dims": {
-            "type": int,
-            "default": constants.reward_net_latent_space,
-            "help": "dimension of latent space",
         },
         "mcmc-chain-path": {
             "type": Path,
