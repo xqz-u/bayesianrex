@@ -263,6 +263,9 @@ if __name__ == '__main__':
     # prepare listwise learning data
     else:
         for i in range(len(demonstrations)):
+            # stop loop when i large enough to be unable to sample enough unique elements for the list
+            if len(demonstrations) - args.listwise < i:
+                break
             # randomly select args.listwise number of preferences to comprise list
             selection = random.sample(range(i, len(demonstrations)), args.listwise)
             # sort selected preferences based on their returns
