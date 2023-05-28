@@ -71,10 +71,10 @@ def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
             logger.info(
                 "Using mean learned reward fn from MCMC chain at %s", chain_path
             )
-            env = MeanRewardWrapper(env, reward_net, args.mcmc_chain_path)
+            env = MeanRewardWrapper(env, reward_net, args.mcmc_chain_path, device)
         else:
             logger.info("Using learned MAP reward fn")
-            env = MAPRewardWrapper(env, reward_net)
+            env = MAPRewardWrapper(env, reward_net, device)
     else:
         env = create_atari_env(
             env_id,

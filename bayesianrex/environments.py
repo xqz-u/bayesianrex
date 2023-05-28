@@ -123,7 +123,7 @@ class MAPRewardWrapper(VecEnvWrapper):
     parameterised by a neural network. The reward is the MAP of the learned function.
     """
 
-    def __init__(self, venv: VecEnv, reward_model: RewardNetwork):
+    def __init__(self, venv: VecEnv, reward_model: RewardNetwork, device):
         """
         Initializer
         :param venv: VectorEnvironment (i.e. sb3 Atari env) instance
@@ -133,7 +133,8 @@ class MAPRewardWrapper(VecEnvWrapper):
         # NOTE necessary to avoid reparameterization trick in
         # RewardNetwork.cum_return(), as in original code (EmbeddingNet of
         # custom_reward_wrapper.py in baselines)
-        self.reward_model = reward_model.eval()
+        self.reward_model = reward_model.eval().to(device)
+        self.device = device
 
     def reset(self) -> VecEnvObs:
         """Reset the environment"""
@@ -141,19 +142,18 @@ class MAPRewardWrapper(VecEnvWrapper):
 
     def step_wait(self) -> VecEnvStepReturn:
         """Step through the environment and return env information"""
-        obs, reward, done, info = self.venv.step_wait()
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        obs = torch.Tensor(obs / 255.0).to(device)
-        self.reward_model = self.reward_model.to(device)
+        obs, _, done, info = self.venv.step_wait()
+        obs = torch.Tensor(obs / 255.0).to(self.device)
         reward = self.reward_model.cum_return(obs)[0].detach().cpu().numpy()
         obs = obs.detach().cpu().numpy()
         return (obs, reward, done, info)
 
 
 class MeanRewardWrapper(MAPRewardWrapper):
-    def __init__(self, venv: VecEnv, reward_model: RewardNetwork, chain_path: Path):
-        super().__init__(venv, reward_model)
+    def __init__(self, venv: VecEnv, reward_model: RewardNetwork, chain_path: Path, device):
+        super().__init__(venv, reward_model, device)
         # load MCMC data
+        self.device = device
         mcmc_data = np.load(chain_path)
         mcmc_chain = mcmc_data["chain"]
         # last layer just outputs the scalar reward = w^T \phi(s)
@@ -170,7 +170,8 @@ class MeanRewardWrapper(MAPRewardWrapper):
         mean_reward_fn = (
             torch.from_numpy(mean_reward_fn[None, ...])
             .to(torch.float32)  # default torch dtype
-            .to(reward_model.device)
+            .to(self.device)
         )
         self.reward_model.trex.weight = nn.Parameter(mean_reward_fn)
+        self.reward_model = self.reward_model.to(device)
         logger.info("Succesfully set learned reward fn as mean of MCMC chain")
