@@ -20,6 +20,16 @@ from bayesianrex.environments import create_atari_env
 
 
 def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
+    """
+    Evaluate a learned policy stored in a checkpoint file on the specified environment.
+
+    :param checkpointfile: path to checkpoint file
+    :param env_name: name of the environment to evaluate the policy on
+    :param num_episodes: number of episodes to run during evaluation
+    :param conf: configuration parameters required for evaluation
+    :return: A list of returns obtained from each evaluated episode.
+
+    """
     env_id = constants.envs_id_mapper.get(env_name)
     env_type = "atari"
 
@@ -67,6 +77,15 @@ def evaluate_learned_policy(env_name, checkpointpath, num_episodes, conf):
 
 
 def eval_checkpoint(checkpointfile, env_name, num_episodes, conf):
+    """
+    Evaluate a checkpoint file containing learned policy weights on the specified environment.
+    (This is mainly a wrapper over evaluate_learned_policy)
+
+    :param checkpointfile: path to checkpoint file
+    :param env_name: name of the environment to evaluate the policy on
+    :param num_episodes: number of episodes to run during evaluation
+    :param conf: configuration parameters required for evaluation
+    """
     n_steps = checkpointfile.split("/")[-1]
     run_name = f"{env_name}_{n_steps}"
     run = wandb.init(
