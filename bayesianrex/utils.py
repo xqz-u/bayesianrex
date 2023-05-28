@@ -15,6 +15,7 @@ def torch_device() -> torch.device:
 def tensorify(array: List[np.ndarray]) -> List[torch.Tensor]:
     """ 
     Change a list of np arrays to torch tensors 
+    
     :param array: List (list-type) of numpy arrays
     :return: pytorch tensor
     """
