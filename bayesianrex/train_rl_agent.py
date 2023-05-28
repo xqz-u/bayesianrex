@@ -44,7 +44,7 @@ def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
         ckpt_path = args.assets_dir / "demonstrators" / f"{env_id}_custom"
         reward_model_path = args.reward_model_path
         assert reward_model_path is not None, "You must give a path to reward fn model"
-        device = device = utils.torch_device()
+        device = utils.torch_device()
         logger.info("Loading learned reward fn weights from %s", reward_model_path)
         reward_net = load_reward_network(reward_model_path, args.env, device=device)
         if args.mean:
