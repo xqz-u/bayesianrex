@@ -112,7 +112,7 @@ class RewardNetwork(nn.Module):
     def decode(self, encoding: T) -> T:
         return self.decoder(encoding).permute(0, 2, 3, 1)
 
-    def trajectory_embedding(self, traj: T, sum_: bool =False) -> T:
+    def trajectory_embedding(self, traj: T, sum_: bool = False) -> T:
         with torch.no_grad():
             mu = self.fc_mu(self.get_embedding(traj))
             if sum_:

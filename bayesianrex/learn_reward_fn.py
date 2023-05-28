@@ -29,6 +29,18 @@ def learn_reward_fn(
     run: Run,
     log_freq: int = 300,
 ):
+    """
+    Perform the full pipeline for to learn the neural network-parameterised reward function.
+    Can be used both to train via TREX loss and Self-Supervised loss
+
+    :param train_loader: DataLoader object
+    :param reward_net: RewardNetwork obeject that is to be trained
+    :param optimizer: torch optimizer to optimize parameters
+    :param loss_name: the name of the the loss to use ("trex"/"ss")
+    :param n_epochs: number of epochs to train the network
+    :param run: Run object used to log training information
+    :param log_freq: how often to log training information (training steps, not epochs)
+    """
     for epoch in range(n_epochs):
         cum_loss, cum_ret, cum_abs_ret = 0, 0, 0
         for i, datapoint in enumerate(train_loader):
@@ -73,6 +85,20 @@ def learn_reward_fn(
 
 
 def main(args: Namespace):
+    """
+    Main function to run the file, used to train the neural network-parameterised reward function.
+
+    Pipeline:
+    - Checks if offline training data can be loaded or new ones need to be generated.
+    - The training data is loaded or generated, and a data loader is created.
+    - A reward network is initialized based on the specified environment and encoding dimensions.
+    - The function sets up the W&B (Weights & Biases) logging if configured.
+    - The reward function is learned from the training data using the learn_reward_fn function.
+    - Training is monitored and logged with the specified logging frequency.
+    - The learned reward function weights are saved to the specified path or default location.
+
+    :param args: Namespace object with relevent info for training
+    """
     logger.info("Using device: %s", device)
 
     # load offline training data if they exist, otherwise generate new ones
@@ -160,6 +186,7 @@ if __name__ == "__main__":
     p = utils.define_cl_parser(parser_conf)
     args = p.parse_args()
 
+    # # Testing:
     # args.seed = 0
     # args.log_level = 1
     # # args.checkpoints_dir = config.DEMONSTRATIONS_DIR / "BreakoutNoFrameskip-v4"
@@ -177,7 +204,3 @@ if __name__ == "__main__":
 
     utils.setup_root_logging(args.log_level)
     main(args)
-
-
-# TODO original codebase has a `predict_trajectory_return` evaluation step at
-# the end
