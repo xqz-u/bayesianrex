@@ -299,10 +299,10 @@ if __name__ == "__main__":
     args = p.parse_args()
     utils.setup_root_logging(args.log_level)
 
-    args.pretrained_model_path = config.ASSETS_DIR / "reward_model_breakout.pth"
-    args.trajectories_path = (
-        config.TRAIN_DATA_DIR / "BreakoutNoFrameskip-v4" / "trajectories"
-    )
-    args.seed = 0
+    # args.pretrained_model_path = config.ASSETS_DIR / "reward_model_breakout.pth"
+    # args.trajectories_path = (
+    #     config.TRAIN_DATA_DIR / "BreakoutNoFrameskip-v4" / "trajectories"
+    # )
+    # args.seed = 0
 
     main(args)

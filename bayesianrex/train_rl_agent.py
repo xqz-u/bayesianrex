@@ -1,63 +1,72 @@
 import logging
 import multiprocessing as mp
 from argparse import Namespace
+from pathlib import Path
 from pprint import pformat
+from typing import Tuple
 
-import bayesianrex.environments as environments
 import wandb
 import yaml
-from bayesianrex import config, constants, utils
-from bayesianrex.dataset.wrapper import CustomMeanRewardWrapper, CustomMAPRewardWrapper
-from bayesianrex.environments import create_atari_env
-from bayesianrex.models.reward_model import RewardNetwork
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback
 from stable_baselines3.common.vec_env import (
     SubprocVecEnv,
     VecCheckNan,
+    VecEnv,
     VecVideoRecorder,
 )
 from wandb.integration.sb3 import WandbCallback
 
+from bayesianrex import config, constants, utils
+from bayesianrex.environments import (
+    MAPRewardWrapper,
+    MeanRewardWrapper,
+    create_atari_env,
+    create_hidden_lives_atari_env,
+)
+from bayesianrex.models.utils import load_reward_network
+
 logger = logging.getLogger(__name__)
 
 
-def learn_demonstrator(args: Namespace):
-    args.assets_dir.mkdir(parents=True, exist_ok=True)
-
-    # parse default args from rl-baselines3-zoo for Atari envs
-    with open(config.ROOT_DIR / "atari_conf.yml") as fd:
-        conf = yaml.safe_load(fd)
-
+def make_env(args: Namespace, conf: dict) -> Tuple[VecEnv, str, Path]:
     # adjust env_args
     conf["env_args"] = {"n_envs": args.n_envs or mp.cpu_count(), "seed": args.seed}
     env_id = constants.envs_id_mapper.get(args.env)
     ckpt_path = args.assets_dir / "demonstrators" / env_id
     # run the environments in parallel, the overhead should be worth it with Atari
-    if args.Custom_Reward:
-        ckpt_path = args.assets_dir / "demonstrators" / f"{args.env}_custom"
-    env = create_atari_env(
-        env_id,
-        **conf["env_args"],
-        vec_env_cls=SubprocVecEnv,
-    )
-    # TODO: test Custom Reward wrapper
-    if args.Custom_Reward:
-        device = torch.device("cuda" if torch.cuda.is_available else "cpu")
-        n_actions = environments.create_atari_env(
-            constants.envs_id_mapper.get(args.env)
-        ).action_space.n
-        reward_net = RewardNetwork(args.encoding_dims, n_actions, device).to(device)
-        reward_net.trex = torch.nn.Linear(args.encoding_dims, 1, bias=False)
-        checkpoint = torch.load(args.reward_net_location)
-        reward_net.load_state_dict(checkpoint)
+    if args.custom_reward:
+        # our custom reward model was trained on atari environments with special
+        # preprocessing to hide game info
+        env = create_hidden_lives_atari_env(
+            args.env, **conf["env_args"], vec_env_cls=SubprocVecEnv
+        )
+        ckpt_path = args.assets_dir / "demonstrators" / f"{env_id}_custom"
+        reward_model_path = args.reward_model_path
+        assert reward_model_path is not None, "You must give a path to reward fn model"
+        device = device = utils.torch_device()
+        logger.info("Loading learned reward fn weights from %s", reward_model_path)
+        reward_net = load_reward_network(reward_model_path, args.env, device=device)
         if args.mean:
-            env = CustomMeanRewardWrapper(env, reward_net, args.chain_path, args.encoding_dims, device)
+            chain_path = args.mcmc_chain_path
+            assert chain_path is not None, "You must give a path to the MCMC chain"
+            logger.info(
+                "Using mean learned reward fn from MCMC chain at %s", chain_path
+            )
+            env = MeanRewardWrapper(
+                env, reward_net, args.mcmc_chain_path, args.encoding_dims, device
+            )
         else:
-            env = CustomMAPRewardWrapper(env, reward_net)
+            logger.info("Using learned MAP reward fn")
+            env = MAPRewardWrapper(env, reward_net)
+    else:
+        env = create_atari_env(
+            env_id,
+            **conf["env_args"],
+            vec_env_cls=SubprocVecEnv,
+        )
     # sometimes early into training there are numerical instability issues
     env = VecCheckNan(env, raise_exception=True)
-
     if args.video:
         # NOTE bugfix, stable_baselines3.common.vec_env.VecFrameStack does not set
         # 'render_mode' after wrapping, which is required by VecVideoRecorder
@@ -80,6 +89,17 @@ def learn_demonstrator(args: Namespace):
             video_length=video_len,
             name_prefix=f"PPO-{env_id}",
         )
+    return env, env_id, ckpt_path
+
+
+def learn_demonstrator(args: Namespace):
+    args.assets_dir.mkdir(parents=True, exist_ok=True)
+
+    # parse default args from rl-baselines3-zoo for Atari envs
+    with open(config.ROOT_DIR / "atari_conf.yml") as fd:
+        conf = yaml.safe_load(fd)
+
+    env, env_id, ckpt_path = make_env(args, conf)
 
     logger.info("Atari args:\n%s", pformat(conf))
     logger.info("Command line args:\n%s", pformat(vars(args)))
@@ -151,29 +171,28 @@ if __name__ == "__main__":
             "action": "store_true",
             "help": "record videos of the agent while training",
         },
-        "Custom_Reward": {
-            "type": bool,
-            "default": False,
-            "help": "whether to use learned reward function",
-        },
-        "reward_net_location": {
-            "type": str,
-            "default": "",
-            "help": "location of trained reward net checkpoint",
-        },
-        "encoding_dims": {
-            "type": int,
-            "default": constants.reward_net_latent_space,
-            "help": "encoding_dim of the model",
-        },
-        "chain_path" : {
-            "type": str,
-            "help": "where to find mcmc chain file for mean estimate"
-        },
-        "mean" : {
+        "custom-reward": {
             "action": "store_true",
             "default": False,
-            "help": "use flag to use the mean estimate of mcmc, otherwise use map"
+            "help": "whether to use a reward fn from the learned posterior",
+        },
+        "reward-model-path": {
+            "type": Path,
+            "help": "location of agent trained with a learned reward fn",
+        },
+        "encoding-dims": {
+            "type": int,
+            "default": constants.reward_net_latent_space,
+            "help": "dimension of latent space",
+        },
+        "mcmc-chain-path": {
+            "type": Path,
+            "help": "where to find MCMC chain file for mean reward fn estimate",
+        },
+        "mean": {
+            "action": "store_true",
+            "default": False,
+            "help": "whether to use the mean learned reward fn, or the MAP",
         },
         **constants.wandb_cl_parser,
     }

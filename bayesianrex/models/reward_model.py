@@ -64,7 +64,7 @@ class RewardNetwork(nn.Module):
         self.fc_var = nn.Linear(intermediate_dimension, self.encoding_dims)
         self.normal = tdist.Normal(0.0, 1.0)
         # T-Rex layer, linear combination of self.encoding_dims
-        self.trex = nn.Linear(self.encoding_dims, 1)
+        self.trex = nn.Linear(self.encoding_dims, 1, bias=False)
 
     def reparameterize(self, mu: T, var: T) -> T:
         std = torch.exp(var / 2)
