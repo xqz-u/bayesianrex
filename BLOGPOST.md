@@ -25,7 +25,7 @@ In this section, we discuss the work of the authors, both on the theoretical (re
 
 
 <p align=center>
-  <img src='bayesianrex\blogpost_images\BREXslide.png' width=800>
+  <img src='blogpost_images/BREXslide.png' width=800>
 </p>
 
 
@@ -106,7 +106,7 @@ During an MCMC step, the current state of the last layer is slightly adjusted an
 
 
 <p align=center>
-  <img src='bayesianrex\blogpost_images\mcmc.png' width=800>
+  <img src='blogpost_images/mcmc.png' width=800>
 </p>
 
 ### Training RL Agents with the Learned Reward function
@@ -147,11 +147,11 @@ Due to time constraints, we were able to train an agent in the Breakout environm
 To compare the agents, we let each agent play the game 30 times (as the authors did) and collected the rewards they achieved. In the first figure, we have plotted the reward gained each run for each agent. In the second figure, we have plotted the amount of steps the agent took in each run.
 
 <p align=center>
-  <img src='bayesianrex\blogpost_images\acc_reward.jpg' width=800>
+  <img src='blogpost_images/acc_reward.jpg' width=800>
 </p>
 
 <p align=center>
-  <img src='bayesianrex\blogpost_images\steps.jpg' width=800>
+  <img src='blogpost_images/steps.jpg' width=800>
 </p>
 
 |         | Pretrained agent | | B-REX Mean | B-REX MAP |
@@ -168,7 +168,7 @@ Firstly, we can clearly see our results do not come close to those the authors a
 1. The embedding network performance was not high enough. Unfortunately, the authors did not provide details on the performance of their embedding network on its own, so we are not able to compare this. Below, we have attached the loss curve we found when training our embedding network. From this, we can see the loss steadily decreases, which implies that the network did learn. Without something to compare to, however, it is difficult to put our curve into perspective. 
 
 <p align=center>
-  <img src='bayesianrex\blogpost_images\loss.jpg' width=800>
+  <img src='blogpost_images/loss.jpg' width=800>
 </p>
 
 # Individual Contribution

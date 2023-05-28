@@ -1,5 +1,5 @@
-# PLEASE UPDATE THE TITLE
-
+# A Study on Risk Evaluation in Imitation Learning
+## Re: *Safe Imitation Learning via Fast Bayesian Reward Inference from Preferences*
 # Running the project
 
 ## Installing the environment
